@@ -3,7 +3,7 @@
 零依赖、纯 ESM。`git clone` 之后 `npm test` 就能跑，不需要 `npm install`。
 
 ```sh
-npm test          # 17 个测试，不发真实请求
+npm test          # 18 个测试，不发真实请求
 npm run build     # 构建扩展（改完 src/ 必须重建）
 npm run package   # 打包，会校验 manifest 引用完整
 ```
