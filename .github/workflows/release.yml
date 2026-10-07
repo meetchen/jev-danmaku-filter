@@ -1,0 +1,40 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 测试
+        run: npm test
+
+      - name: 校验 tag 与两个版本号一致
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")
+          manifest=$(node -p "JSON.parse(require('fs').readFileSync('apps/extension/manifest.json','utf8')).version")
+          echo "tag=$tag  package.json=$pkg  manifest.json=$manifest"
+          if [ "$tag" != "$pkg" ] || [ "$tag" != "$manifest" ]; then
+            echo "::error::tag 与版本号不一致。先同步 package.json 与 manifest.json，再打 tag。"
+            exit 1
+          fi
+
+      - name: 打包（会校验 manifest 引用并拒绝 seed.json）
+        run: node scripts/package.mjs
+
+      - name: 发布
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/jev-danmaku-filter-v*.zip
+          generate_release_notes: true

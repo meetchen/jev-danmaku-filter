@@ -153,22 +153,45 @@ node src/cli/bili-filter.js "https://www.bilibili.com/bangumi/play/ep403700" --l
 ## 开发
 
 ```sh
-npm test              # 18 个测试，不发真实请求
+npm test              # 27 个测试，不发真实请求
 npm run build         # 构建扩展
 npm run icons         # 重新生成图标（--check 只校验像素，见下）
 npm run package       # 打包 zip，会校验 manifest 引用并拒绝 seed.json
 npm run verify        # 在 29 条人工标注样本上量当前配置的 P/R/F1
 ```
 
+发版走 tag：版本号要同步 `package.json` 与 `apps/extension/manifest.json`，
+`git tag v0.2.0 && git push origin v0.2.0` 会触发 `.github/workflows/release.yml`
+（先跑测试、校验版本号一致、打包，再自动发布 Release）。
+
 改完源码要**重新 build**，CI 会检查提交的生成文件与源码是否一致。
 
 ```
 src/core/                 平台无关：规则 / JEV 客户端 / 批量调度 / 缓存
-src/adapters/bilibili/    站点适配：protobuf 编解码、URL、弹幕采集
+src/sites/                站点注册表与描述符（加新站点只动这里）
+src/adapters/bilibili/    站点原语：protobuf 编解码、URL 构造、弹幕采集
 src/cli/                  命令行
+scripts/bundle.mjs        把 ES module 拼成经典脚本的小打包器
 apps/extension/src/       两个运行时脚本的源码（会被打包器拼成经典脚本）
 apps/extension/vendor/    构建时从 src/ 复制，勿手改
 ```
+
+### 加一个新站点
+
+站点差异全部收在 `src/sites/` 的描述符里，`page-runtime.js` 不含任何站点特有逻辑：
+
+```js
+export const SITES = [bilibili];   // src/sites/index.js —— 加一个就注册一个
+```
+
+改完可以用这条命令自查运行时是否干净（应该全部落在站点描述符那一段，运行时那一段为 0）：
+
+```sh
+grep -E "bilibili|SEGMENT|bili-danmaku" apps/extension/page.js
+```
+
+契约和完整步骤见 [CONTRIBUTING.md](CONTRIBUTING.md)。测试里有一个假站点
+（`test/fixtures/fake-site.js`）专门用来证明"加站点不用碰通信层"。
 
 ### 一个本地测试技巧：seed.json
 

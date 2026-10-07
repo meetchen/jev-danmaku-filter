@@ -3,7 +3,7 @@
 零依赖、纯 ESM。`git clone` 之后 `npm test` 就能跑，不需要 `npm install`。
 
 ```sh
-npm test          # 18 个测试，不发真实请求
+npm test          # 27 个测试，不发真实请求
 npm run build     # 构建扩展（改完 src/ 必须重建）
 npm run package   # 打包，会校验 manifest 引用完整
 ```
@@ -39,50 +39,80 @@ document.documentElement.dataset.jevmStatus
 
 ### 二、加新的站点适配器
 
-目前只有 B 站。要加第二个站点，**先要做一次重构** —— 这是当前最值得做的一件事：
+站点差异**已经全部抽到 `src/sites/` 的描述符里**了，`page-runtime.js` 不含任何站点特有逻辑
+（可以用 `grep -E "bilibili|SEGMENT|bili-danmaku" apps/extension/page.js` 验证 —— 命中全部落在
+站点描述符那一段，运行时那一段是 0）。
 
-`apps/extension/src/page-runtime.js` 里的站点逻辑还是写死的（`isSegment()` 判断 seg.so、
-`resolve()` 里的 pgc / view 分支、弹幕解码）。加第二个站点之前，应该把它抽成一张注册表：
+所以加一个站点 = 新建一个描述符 + 注册，**不用碰通信层**。契约见 `src/sites/contract.js`，
+最简实现见 `src/sites/bilibili.js`。
 
 ```js
-// 目标形状（尚未实现）
-export const adapters = [
-  {
-    id: 'bilibili',
-    // 1. 这个页面是不是我的
-    matches: url => /^\/(video|list|bangumi\/play)\//.test(new URL(url).pathname),
-    // 2. 解析出视频标识，返回统一的形状
-    //    { cid, aid, title, description, duration, kind }
-    resolve: async (fetchJson, href) => ({ ... }),
-    // 3. 哪些响应是要过滤的弹幕响应
-    isDanmakuResponse: url => parsed.pathname === '/x/v2/dm/web/seg.so',
-    // 4. 从响应字节里取出所有弹幕文本
-    decodeTexts: bytes => decodeSegment(bytes).map(i => i.text),
-    // 5. 剔除命中项，返回新字节（null 表示不用改）
-    filterBytes: (bytes, isBlocked) => { ... },
-    // 6. 兜底：DOM 弹幕的选择器（可选，没有就返回 null）
-    domSelector: '.bili-danmaku-x-dm,.b-danmaku,.danmaku-item',
+// src/sites/mysite.js
+export const mysite = {
+  id: 'mysite',
+  label: '某站',
+  domSelector: '.some-danmaku,.other-danmaku',   // 可选：DOM 兜底用；null 表示不做兜底
+
+  // 1. 这个页面归不归我管
+  matches: href => new URL(href).hostname === 'mysite.example' && new URL(href).pathname.startsWith('/watch/'),
+
+  // 2. 解析成统一形状。context 提供 fetchBytes / fetchJson / toText / post
+  async resolve({ fetchJson }) {
+    const data = await fetchJson(`https://api.mysite.example/video?url=${encodeURIComponent(location.href)}`);
+    return { source: 'mysite', cid: data.videoId, title: data.title, description: data.desc, duration: data.seconds };
   },
-];
+
+  // 3. 哪些响应是弹幕数据（返回 true 的才会被钩子接住）
+  isDanmakuResponse: url => url.includes('/api/danmaku'),
+
+  // 4. 从弹幕数据里取出所有文本
+  decodeTexts: bytes => JSON.parse(new TextDecoder().decode(bytes)).map(item => item.text),
+
+  // 5. 剔除命中项，返回新字节；返回 null 表示这条不用改
+  filterBytes(bytes, isBlocked) {
+    const items = JSON.parse(new TextDecoder().decode(bytes));
+    const kept = items.filter(item => !isBlocked(item.text));
+    return { bytes: new TextEncoder().encode(JSON.stringify(kept)), dropped: items.length - kept.length, total: items.length };
+  },
+
+  // 6. 可选：预热文本，让播放器拉分段时基本都命中缓存
+  async warmup({ fetchBytes, toText }, video) { /* ... */ },
+};
 ```
 
-`page-runtime.js` 之后只做通用的事：握手、RPC、钩 fetch/XHR、按 `isDanmakuResponse` 分派。
-这样加站点只需要写一个新对象，不用碰通信层。
+然后注册进去，顺序即优先级：
 
-各站点的难度差很多，动手前先确认"能不能拿到弹幕原文 + 能不能把过滤后的弹幕塞回播放器"：
+```js
+// src/sites/index.js
+export const SITES = [bilibili, mysite];
+```
+
+**必做三件事**：
+
+1. 在 `test/registry.test.mjs` 里加断言：`createRegistry(SITES).find('你的页面 URL').id === 'mysite'`，
+   同时确认别的站点不会被误匹配。
+2. 用 `test/fixtures/fake-site.js` 那套办法验证 decodeTexts / filterBytes 真的能跑通 ——
+   它演示了怎么用 `composeBundle()` 拼一个只含你站点的 bundle 丢进 sandbox 跑
+   （那个假站点故意用 JSON 而不是 protobuf，用以证明链路不依赖任何 B 站假设）。
+3. 手动加载扩展，在真实页面上确认一遍。**没在实机上验证过的适配器请不要在 README 里宣称支持。**
+
+**动手前的判断标准**：能不能拿到弹幕原文 + 能不能把过滤后的弹幕塞回播放器。
 
 | 站点 | 数据来源 | 难度 |
-|---|---|---|
-| 弹弹play | 本地 XML / JSON，还支持第三方弹幕库 | 最容易，可以先做这个 |
-| A 站 | JSON 接口 | 低 |
-| niconico | 官方 API | 中 |
-| 腾讯 / 爱奇艺 / 优酷 / 芒果 | 各自的私有加密接口 | 高，逐个逆向 |
+| --- | --- | --- |
+| 弹弹play | 本地 XML / JSON，还支持第三方弹幕库 | 最容易 |
+| AcFun | 播放器私有接口，需要逆向 | 中 |
+| niconico | 官方 API，但要会话 | 中 |
+| 腾讯 / 爱奇艺 / 优酷 / 芒果 | 各自的私有加密接口 | 高 |
+| 巴哈姆特動畫瘋 | 接口公开，但会对非浏览器来源返回 403 | 中 |
 | YouTube | 无原生弹幕，依赖第三方扩展 | 要先选一个扩展 |
 
-**另一个更省事的方向：通用文件适配器。**吃本地 XML / JSON / ASS 弹幕文件，输出带剧透标记的结果，
-不碰任何站点接口，用户自己把标记好的弹幕导进播放器。这条路完全绕开逆向，而且正好复用了 `filterSegment()`。
+> 目前仓库里只有 B 站一个适配器。我试过 AcFun / 巴哈姆特 / niconico，都没能在无浏览器环境下
+> 验证接口，所以没有把未经验证的适配器塞进来冒充支持。
 
----
+**另一条更省事的路：通用文件适配器。**吃本地 XML / JSON / ASS 弹幕文件，输出带剧透标记的结果，
+不碰任何站点接口，用户自己把标记好的弹幕导进播放器。完全绕开逆向，而且直接复用
+`filterBytes()` 那套逻辑。这个方向不需要浏览器验证，是很好的起步点。
 
 ## 提交前检查
 

@@ -1,20 +1,24 @@
-/* MAIN world。运行在 B 站页面自己的 JS 上下文里，因此：
-   1) fetch 带的是页面来源（https://www.bilibili.com），不会触发 B 站对 chrome-extension:// 来源的 412 风控；
-   2) 可以读 window.__INITIAL_STATE__，也可以改写播放器拿到的 seg.so 响应（protobuf 无损重编码）。
+/* MAIN world。运行在站点页面自己的 JS 上下文里，因此：
+   1) fetch 带的是页面来源，不会触发站点对 chrome-extension:// 来源的风控（B 站返回 412）；
+   2) 可以直接读页面自带的播放数据；
+   3) 可以改写播放器拿到的弹幕响应。
+
+   这个文件**不含任何站点特有逻辑** —— 站点差异全部在 src/sites/ 的描述符里，通过注册表分派。
+   加一个新站点不需要改这里。
 
    安全模型：window.postMessage 是同窗口广播，页面上任何脚本都能伪造消息。因为本脚本和隔离世界的
    content 脚本都在 document_start 注入（早于页面自己的任何脚本），所以在那一刻做一次带随机令牌的
    握手，之后的通信都要求携带该令牌 —— 页面脚本要窃取就得比 document_start 更早，做不到。
    握手只接受一次，防止页面脚本后来用自带令牌重新握手。
 
-   构建时与 protobuf.js / xml.js / urls.js 拼成一个经典脚本，整体包一层 IIFE。 */
+   构建时与站点描述符一起拼成一个经典脚本，整体包一层 IIFE。 */
 (() => {
   const CHANNEL = 'jev-danmaku';
-  const SEGMENT_PATH = '/x/v2/dm/web/seg.so';
   const TOKEN_MIN_LENGTH = 16;
   const nativeFetch = window.fetch.bind(window);
   const decoder = new TextDecoder('utf-8');
 
+  const site = findSite(location.href);
   const blocked = new Set();
   const asked = new Set();
   let token = null;
@@ -22,23 +26,16 @@
 
   const post = (payload, transfer) => window.postMessage({ __jev: true, channel: CHANNEL, token, ...payload }, location.origin, transfer || []);
 
-  function isSegment(url) {
-    try {
-      const parsed = new URL(url, location.href);
-      return parsed.origin === 'https://api.bilibili.com' && parsed.pathname === SEGMENT_PATH;
-    } catch { return false; }
-  }
-
   // 一律走原生 fetch，避免和下面的过滤钩子互相递归。
   async function fetchRaw(url) {
     const response = await nativeFetch(url, { credentials: 'include', cache: 'no-store' });
-    if (!response.ok) throw new Error(`B 站接口 HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`接口 HTTP ${response.status}`);
     return new Uint8Array(await response.arrayBuffer());
   }
 
   async function fetchJson(url) {
     const json = JSON.parse(decoder.decode(await fetchRaw(url)));
-    if (json.code !== 0) throw new Error(json.message || `B 站接口返回错误 ${json.code}`);
+    if (json.code !== 0) throw new Error(json.message || `接口返回错误 ${json.code}`);
     return json.result ?? json.data;
   }
 
@@ -54,64 +51,7 @@
     return decoder.decode(bytes);
   }
 
-  function stateFromPage() {
-    const state = window.__INITIAL_STATE__; // 番剧页没有这个变量，会走下面的接口
-    if (!state) return null;
-    const episode = state.epInfo;
-    if (episode?.cid) {
-      return { kind: 'bangumi', bvid: episode.bvid, aid: episode.aid, cid: episode.cid,
-        title: episode.longTitle || episode.title || document.title, description: '',
-        duration: normalizeDuration(episode.duration) };
-    }
-    const data = state.videoData;
-    if (data?.cid) {
-      // 多 P 视频：videoData.pages[] 里每 P 有自己的 cid / duration，必须按 ?p= 取。
-      const index = Math.max(0, (Number(new URLSearchParams(location.search).get('p')) || 1) - 1);
-      const page = data.pages?.[index] ?? data.pages?.[0];
-      return {
-        kind: 'video',
-        bvid: data.bvid,
-        aid: data.aid,
-        cid: page?.cid ?? data.cid,
-        // 单 P 视频的 pages[0].part 就等于标题，直接拼会变成「标题 · 标题」。
-        title: (page?.part && page.part !== data.title)
-          ? `${data.title || document.title} · ${page.part}`
-          : (data.title || document.title),
-        description: data.desc || '',
-        duration: normalizeDuration(page?.duration ?? data.duration),
-      };
-    }
-    return null;
-  }
-
-  async function resolve() {
-    const fromPage = stateFromPage();
-    if (fromPage) return fromPage;
-    const ref = parseVideoRef(location.href);
-    if (ref.epId) return normalizeEpisode(await fetchJson(pgcUrl(ref.epId)), ref.epId);
-    const page = new URLSearchParams(location.search).get('p');
-    return normalizeVideo(await fetchJson(viewUrl(location.href)), page);
-  }
-
-  // 预热：一次 list.so 就能拿到全片一大把弹幕，先批量判定，播放器后续拉分段时基本都命中。
-  // 注意 list.so 是抽样返回的（同一视频两次调用子集不同），所以预热只是延迟优化，
-  // 真正兜底的是下面"分段到来时按需判定"。
-  async function warmup(video) {
-    if (!video?.cid) return [];
-    try {
-      const items = parseDanmakuXml(await toText(await fetchRaw(xmlUrl(video.cid))));
-      const seen = new Set();
-      const texts = [];
-      for (const item of items) {
-        const text = (item.text || '').trim();
-        if (text && !seen.has(text)) { seen.add(text); texts.push(text); }
-      }
-      return texts;
-    } catch (error) {
-      post({ kind: 'warn', message: `预热弹幕失败：${error.message}` });
-      return [];
-    }
-  }
+  const context = { href: location.href, fetchBytes: fetchRaw, fetchJson, toText, post };
 
   // 播放器拉到的分段里出现没判过的文本时，向隔离世界要结果。
   const waiting = new Map();
@@ -127,8 +67,8 @@
   }
 
   async function filterBuffer(raw) {
-    if (!connected) return null;
-    const texts = decodeSegment(raw).map(item => item.text).filter(Boolean);
+    if (!connected || !site) return null;
+    const texts = site.decodeTexts(raw);
     const unknown = [...new Set(texts)].filter(text => !asked.has(text));
     if (unknown.length) {
       const verdicts = await judge(unknown);
@@ -138,58 +78,66 @@
       }
     }
     if (!blocked.size) return null;
-    const { bytes, dropped, total } = filterSegment(raw, text => blocked.has(text));
-    if (dropped) post({ kind: 'filtered', dropped, total });
-    return dropped ? bytes : null;
+    const result = site.filterBytes(raw, text => blocked.has(text));
+    if (!result?.dropped) return null;
+    post({ kind: 'filtered', dropped: result.dropped, total: result.total });
+    return result.bytes;
   }
 
-  // ---- fetch 钩子 ----
-  window.fetch = function jevFetch(...args) {
-    const url = args[0] instanceof Request ? args[0].url : args[0];
-    const promise = nativeFetch(...args);
-    if (!isSegment(url)) return promise;
-    return promise.then(async response => {
-      if (!response.ok) return response;
-      try {
-        const filtered = await filterBuffer(new Uint8Array(await response.clone().arrayBuffer()));
-        if (!filtered) return response;
-        return new Response(filtered, { status: 200, statusText: 'OK', headers: { 'content-type': 'application/octet-stream' } });
-      } catch (error) {
-        post({ kind: 'warn', message: `过滤弹幕分段失败：${error?.message || error}` });
-        return response;
+  // 站点没有弹幕响应钩子（例如离线源）时，完全不碰页面的网络层。
+  const intercepts = Boolean(site?.isDanmakuResponse && site?.filterBytes);
+
+  if (intercepts) {
+    // ---- fetch 钩子 ----
+    window.fetch = function jevFetch(...args) {
+      const url = args[0] instanceof Request ? args[0].url : args[0];
+      const promise = nativeFetch(...args);
+      let isDanmaku = false;
+      try { isDanmaku = site.isDanmakuResponse(url); } catch { isDanmaku = false; }
+      if (!isDanmaku) return promise;
+      return promise.then(async response => {
+        if (!response.ok) return response;
+        try {
+          const filtered = await filterBuffer(new Uint8Array(await response.clone().arrayBuffer()));
+          if (!filtered) return response;
+          return new Response(filtered, { status: 200, statusText: 'OK', headers: { 'content-type': 'application/octet-stream' } });
+        } catch (error) {
+          post({ kind: 'warn', message: `过滤弹幕响应失败：${error?.message || error}` });
+          return response;
+        }
+      });
+    };
+
+    // ---- XHR 钩子：定义实例上的 response getter，读取时同步过滤，不阻塞播放器 ----
+    const XHR = XMLHttpRequest.prototype;
+    const xhrOpen = XHR.open;
+    const xhrSend = XHR.send;
+    const responseDescriptor = Object.getOwnPropertyDescriptor(XHR, 'response');
+
+    XHR.open = function jevOpen(method, url, ...rest) {
+      try { this.__jevDanmaku = site.isDanmakuResponse(url); } catch { this.__jevDanmaku = false; }
+      return xhrOpen.call(this, method, url, ...rest);
+    };
+
+    XHR.send = function jevSend(...args) {
+      if (this.__jevDanmaku && responseDescriptor?.get) {
+        try {
+          Object.defineProperty(this, 'response', {
+            configurable: true,
+            get() {
+              const raw = responseDescriptor.get.call(this);
+              if (!blocked.size || !(raw instanceof ArrayBuffer) || raw.byteLength < 8) return raw;
+              try {
+                const result = site.filterBytes(new Uint8Array(raw), text => blocked.has(text));
+                return result?.dropped ? result.bytes.buffer : raw;
+              } catch { return raw; }
+            },
+          });
+        } catch { /* 定义失败就放行，绝不能让播放器报错 */ }
       }
-    });
-  };
-
-  // ---- XHR 钩子：定义实例上的 response getter，读取时同步过滤，不阻塞播放器 ----
-  const XHR = XMLHttpRequest.prototype;
-  const xhrOpen = XHR.open;
-  const xhrSend = XHR.send;
-  const responseDescriptor = Object.getOwnPropertyDescriptor(XHR, 'response');
-
-  XHR.open = function jevOpen(method, url, ...rest) {
-    try { this.__jevSegment = isSegment(url); } catch { this.__jevSegment = false; }
-    return xhrOpen.call(this, method, url, ...rest);
-  };
-
-  XHR.send = function jevSend(...args) {
-    if (this.__jevSegment && responseDescriptor?.get) {
-      try {
-        Object.defineProperty(this, 'response', {
-          configurable: true,
-          get() {
-            const raw = responseDescriptor.get.call(this);
-            if (!blocked.size || !(raw instanceof ArrayBuffer) || raw.byteLength < 8) return raw;
-            try {
-              const { bytes, dropped } = filterSegment(new Uint8Array(raw), text => blocked.has(text));
-              return dropped ? bytes.buffer : raw;
-            } catch { return raw; }
-          },
-        });
-      } catch { /* 定义失败就放行，绝不能让播放器报错 */ }
-    }
-    return xhrSend.apply(this, args);
-  };
+      return xhrSend.apply(this, args);
+    };
+  }
 
   // ---- 与隔离世界的 RPC ----
   window.addEventListener('message', event => {
@@ -203,7 +151,8 @@
       if (token && token !== next) return;
       token = next;
       connected = true;
-      post({ kind: 'hello-ack' });
+      // 站点信息由 page 侧决定（站点匹配跑在 MAIN world），隔离世界据此决定是否继续。
+      post({ kind: 'hello-ack', site: site?.id ?? null, domSelector: site?.domSelector ?? null });
       return;
     }
 
@@ -212,9 +161,17 @@
 
     if (packet.kind === 'prepare') {
       (async () => {
-        const video = await resolve();
-        const texts = await warmup(video);
-        return { video, texts };
+        if (!site) throw new Error('这个页面还没有适配。');
+        const video = await site.resolve(context);
+        let texts = [];
+        if (site.warmup) {
+          try {
+            texts = await site.warmup(context, video);
+          } catch (error) {
+            post({ kind: 'warn', message: `预热弹幕失败：${error.message}` });
+          }
+        }
+        return { video, texts, domSelector: site.domSelector ?? null };
       })().then(
         result => post({ kind: 'reply', id: packet.id, result }),
         error => post({ kind: 'reply', id: packet.id, error: String(error?.message || error) }),

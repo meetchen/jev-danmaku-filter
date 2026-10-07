@@ -1,9 +1,8 @@
 /* 隔离世界。负责编排：拿到全片弹幕文本 → 交给后台判定 → 把结果推给 page.js 并隐藏 DOM 兜底。
+   站点差异由 MAIN world 的注册表决定，这里只知道站点 id 和 CSS 选择器（都从 hello-ack 拿到）。
    与 MAIN world 的通信靠一个随机令牌保护 —— 见 page-runtime.js 顶部的安全模型说明。 */
 (() => {
   const CHANNEL = 'jev-danmaku';
-  const DANMAKU = '.bili-danmaku-x-dm,.b-danmaku,.danmaku-item';
-  const eligible = () => /^\/(video\/|list\/|bangumi\/play\/)/.test(location.pathname);
 
   // 128 位随机令牌。content 脚本与 page 脚本都在 document_start 注入，早于页面自己的脚本，
   // 所以这个令牌不会被页面脚本观察到。
@@ -24,6 +23,8 @@
   let pageReady = false;
   let pagePath = location.pathname + location.search;
   let video = null;
+  let siteId = null;
+  let domSelector = null;
 
   const pending = new Map();
   let seq = 0;
@@ -46,9 +47,9 @@
     if (!pageReady) throw new Error('页面脚本未注入。');
   }
 
-  // ---------- DOM 兜底：分段改写可能来不及，页面上已经出现的弹幕直接隐藏 ----------
+  // ---------- DOM 兜底：数据层改写可能来不及，页面上已经出现的弹幕直接隐藏 ----------
   function applyNode(node) {
-    if (node.nodeType !== 1 || !node.matches?.(DANMAKU)) return;
+    if (!domSelector || node.nodeType !== 1 || !node.matches?.(domSelector)) return;
     const text = (node.textContent || '').trim();
     if (text && blocked.has(text)) {
       if (node.dataset.jevm !== 'block') { node.dataset.jevm = 'block'; hidden++; updateHud(); }
@@ -59,15 +60,16 @@
 
   let scanScheduled = false;
   function scan() {
-    if (scanScheduled) return;
+    if (scanScheduled || !domSelector) return;
     scanScheduled = true;
     queueMicrotask(() => {
       scanScheduled = false;
-      for (const node of document.querySelectorAll(DANMAKU)) applyNode(node);
+      for (const node of document.querySelectorAll(domSelector)) applyNode(node);
     });
   }
 
   const observer = new MutationObserver(records => {
+    if (!domSelector) return;
     for (const record of records) {
       if (record.type === 'characterData') { scan(); continue; }
       for (const node of record.addedNodes) if (node.nodeType === 1) applyNode(node);
@@ -84,7 +86,7 @@
     document.documentElement?.setAttribute('data-jevm-status',
       !state ? 'idle | 未取到扩展状态'
         : !state.active ? 'off | 插件未开启或未配置 Key'
-          : `${settled ? 'ready' : 'working'} | 判定 ${judged} | 识别剧透 ${blocked.size} | 实际隐藏 ${hidden + filtered}`
+          : `site=${siteId ?? '-'} ${settled ? 'ready' : 'working'} | 判定 ${judged} | 识别剧透 ${blocked.size} | 实际隐藏 ${hidden + filtered}`
             + `${problem ? ` | ${problem}` : progress ? ` | ${progress}` : ''}`);
 
     if (!hudHost) return;
@@ -124,8 +126,6 @@
     pagePath = location.pathname + location.search;
     toPage({ kind: 'reset' });
 
-    if (!eligible()) { state = null; flag(); if (hudHost) { hudHost.remove(); hudHost = null; } updateHud(); return; }
-
     try {
       state = await send({ type: 'GET_STATE' });
     } catch { state = null; flag(); problem = '扩展后台没有响应'; updateHud(); return; }
@@ -133,16 +133,20 @@
     flag();
     if (!state.active) { if (hudHost) { hudHost.remove(); hudHost = null; } updateHud(); return; }
 
-    settled = false; mountHud(); updateHud();
     try {
+      // 先握手：站点由 MAIN world 那边的注册表决定，隔离世界不自己判断 URL。
       await handshake();
       if (epoch !== generation) return;
+      if (!siteId) { if (hudHost) { hudHost.remove(); hudHost = null; } updateHud(); return; }
+
+      settled = false; mountHud(); updateHud();
       const prepared = await ask({ kind: 'prepare' });
       if (epoch !== generation) return;
       video = prepared.video;
+      domSelector = prepared.domSelector ?? domSelector;
       judged = prepared.texts.length;
       updateHud();
-      if (!prepared.texts.length) { settled = true; progress = '这个页面没有弹幕'; updateHud(); return; }
+      if (!prepared.texts.length) { settled = true; progress = domSelector ? '没有可预热的弹幕' : ''; updateHud(); scan(); return; }
 
       const verdict = await send({ type: 'CLASSIFY', texts: prepared.texts, context: prepared.video });
       if (epoch !== generation) return;
@@ -168,7 +172,12 @@
     // 只信任带正确令牌的消息：页面上的其他脚本无法伪造。
     if (packet.token !== TOKEN) return;
 
-    if (packet.kind === 'hello-ack') { pageReady = true; return; }
+    if (packet.kind === 'hello-ack') {
+      siteId = packet.site ?? null;
+      domSelector = packet.domSelector ?? null;
+      pageReady = true;
+      return;
+    }
     if (packet.kind === 'reply' && pending.has(packet.id)) {
       const waiter = pending.get(packet.id);
       pending.delete(packet.id);

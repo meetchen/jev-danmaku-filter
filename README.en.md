@@ -118,13 +118,15 @@ node src/cli/bili-filter.js BV1AzYs6bEeX --out out/result.json
 ## Development
 
 ```sh
-npm test          # 18 tests, no real API calls
+npm test          # 27 tests, no real API calls
 npm run build     # build the extension
 npm run package   # zip; validates the manifest and refuses to ship seed.json
 npm run verify    # measure P/R/F1 of the current config on 29 hand-labelled danmaku
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add another danmaku site.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add another danmaku site. Site differences live
+entirely in the descriptors under `src/sites/`; `page-runtime.js` holds no site-specific logic, and a
+fake site in the test suite proves that adding a site never touches the messaging layer.
 
 ## Tuning record
 
