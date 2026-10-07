@@ -37,10 +37,8 @@ jobs:
             exit 1
           fi
 
-      - name: 图标可复现
-        run: |
-          node scripts/make-icons.mjs
-          git diff --quiet -- apps/extension/icons
+      - name: 图标与脚本一致（比像素，不比字节）
+        run: node scripts/make-icons.mjs --check
 
       - name: 打包（同时校验 manifest 引用完整、seed.json 不泄漏）
         run: node scripts/package.mjs

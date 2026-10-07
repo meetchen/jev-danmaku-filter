@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // 零依赖生成扩展图标。手写 PNG 编码器（IHDR/IDAT/IEND + CRC32），4 倍超采样抗锯齿。
 // 图形语义：绿色圆角方块 + 三条弹幕条，中间那条被切断 = 被过滤掉的那条。
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { deflateSync } from 'node:zlib';
+import { deflateSync, inflateSync } from 'node:zlib';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const OUT = join(ROOT, 'apps/extension/icons');
@@ -90,7 +90,7 @@ function encodePng(size, pixels) {
   ]);
 }
 
-function render(size) {
+function renderPixels(size) {
   const pixels = Buffer.alloc(size * size * 4);
   const step = 1 / (size * SUPERSAMPLE);
   for (let y = 0; y < size; y++) {
@@ -111,13 +111,56 @@ function render(size) {
       pixels[offset + 3] = Math.round(a / total);
     }
   }
-  return encodePng(size, pixels);
+  return pixels;
 }
+
+/** 只读回自己写出来的 PNG（RGBA、filter=None），够用于校验。 */
+function decodePng(buffer) {
+  if (buffer.readUInt32BE(0) !== 0x89504e47) throw new Error('不是 PNG');
+  let offset = 8, width = 0, height = 0, colorType = 0;
+  const idat = [];
+  while (offset + 12 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString('latin1', offset + 4, offset + 8);
+    const data = buffer.subarray(offset + 8, offset + 8 + length);
+    if (type === 'IHDR') { width = data.readUInt32BE(0); height = data.readUInt32BE(4); colorType = data[9]; }
+    else if (type === 'IDAT') idat.push(data);
+    offset += 12 + length;
+  }
+  if (colorType !== 6) throw new Error(`只支持 RGBA，实际 colorType=${colorType}`);
+  const raw = inflateSync(Buffer.concat(idat));
+  const stride = width * 4;
+  const pixels = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    const rowStart = y * (stride + 1);
+    if (raw[rowStart] !== 0) throw new Error('只支持 filter=None');
+    raw.copy(pixels, y * stride, rowStart + 1, rowStart + 1 + stride);
+  }
+  return { width, height, pixels };
+}
+
+const check = process.argv.includes('--check');
 
 await mkdir(OUT, { recursive: true });
 for (const size of SIZES) {
   const file = join(OUT, `${size}.png`);
-  await writeFile(file, render(size));
+  const expected = renderPixels(size);
+
+  if (check) {
+    // 只比像素，不比字节 —— deflateSync 的输出会随 zlib 版本变化，
+    // 用 git diff 比字节会在别的 Node 版本上误报。
+    let actual;
+    try {
+      actual = decodePng(await readFile(file));
+    } catch (error) {
+      throw new Error(`${file}: 读不出来（${error.message}）。文件可能被改过或损坏，跑 npm run icons 重新生成。`);
+    }
+    if (actual.width !== size || actual.height !== size) throw new Error(`${file}: 尺寸是 ${actual.width}×${actual.height}，期望 ${size}×${size}`);
+    if (!actual.pixels.equals(expected)) throw new Error(`${file}: 像素内容与脚本渲染结果不一致，请本地跑 npm run icons 后提交`);
+    console.log(`  icons/${size}.png  ✓ 像素一致`);
+    continue;
+  }
+  await writeFile(file, encodePng(size, expected));
   console.log(`  icons/${size}.png`);
 }
-console.log('✓ 图标已生成（内容确定性，可直接提交）');
+console.log(check ? '✓ 图标校验通过' : '✓ 图标已生成（像素内容确定；字节取决于 zlib 版本，故校验像素而非字节）');

@@ -14,7 +14,7 @@
     "seed": "node scripts/seed-extension.mjs",
     "bili": "node src/cli/bili-filter.js",
     "verify": "node scripts/verify-labeled.mjs",
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "license": "MIT",
   "repository": {
