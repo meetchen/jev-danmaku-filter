@@ -153,9 +153,9 @@ node src/cli/bili-filter.js "https://www.bilibili.com/bangumi/play/ep403700" --l
 ## 开发
 
 ```sh
-npm test              # 17 个测试，不发真实请求
+npm test              # 18 个测试，不发真实请求
 npm run build         # 构建扩展
-npm run icons         # 重新生成图标（内容确定性）
+npm run icons         # 重新生成图标（--check 只校验像素，见下）
 npm run package       # 打包 zip，会校验 manifest 引用并拒绝 seed.json
 npm run verify        # 在 29 条人工标注样本上量当前配置的 P/R/F1
 ```

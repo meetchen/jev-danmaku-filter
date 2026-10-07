@@ -118,7 +118,7 @@ node src/cli/bili-filter.js BV1AzYs6bEeX --out out/result.json
 ## Development
 
 ```sh
-npm test          # 17 tests, no real API calls
+npm test          # 18 tests, no real API calls
 npm run build     # build the extension
 npm run package   # zip; validates the manifest and refuses to ship seed.json
 npm run verify    # measure P/R/F1 of the current config on 29 hand-labelled danmaku
