@@ -1,0 +1,16 @@
+# 依赖（本项目零依赖，这行是为了防止误装）
+node_modules/
+
+# 本地缓存与产物
+.cache/
+out/
+
+# 密钥
+.env
+.env.local
+
+# 扩展的本地预判缓存：只对特定视频有意义，绝不能提交或进发布包
+seed.json
+
+*.log
+.DS_Store

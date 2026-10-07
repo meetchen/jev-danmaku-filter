@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>剧透弹幕过滤器</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <header>
+    <span class="title">剧透弹幕<small>POWERED BY JEV</small></span>
+    <label class="switch"><input id="enabled" type="checkbox"><span></span></label>
+  </header>
+  <p class="intro">打开开关，B 站弹幕里透露后续剧情的会被过滤掉。</p>
+  <p id="status" role="status" aria-live="polite">正在读取…</p>
+  <details id="connection">
+    <summary>连接 JEV（TypeSafe API Key）</summary>
+    <form id="connect-form">
+      <input id="api-key" type="password" autocomplete="off" placeholder="粘贴 API Key">
+      <button type="submit">保存并测试</button>
+    </form>
+    <a href="https://console.typesafe.ai/" target="_blank" rel="noreferrer">去拿 API Key ↗</a>
+  </details>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

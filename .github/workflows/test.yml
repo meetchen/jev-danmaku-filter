@@ -1,0 +1,46 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: 单元与集成测试
+        run: npm test
+
+      - name: 全部脚本语法检查
+        run: |
+          for file in $(git ls-files '*.js' '*.mjs'); do
+            node --check "$file" || exit 1
+          done
+          echo "全部通过"
+
+      - name: 提交的构建产物与源码一致
+        run: |
+          node scripts/build-extension.mjs
+          if ! git diff --quiet -- apps/extension; then
+            echo "::error::apps/extension 下有生成文件与源码不一致，请本地跑 npm run build 后一起提交"
+            git diff --stat -- apps/extension
+            exit 1
+          fi
+
+      - name: 图标可复现
+        run: |
+          node scripts/make-icons.mjs
+          git diff --quiet -- apps/extension/icons
+
+      - name: 打包（同时校验 manifest 引用完整、seed.json 不泄漏）
+        run: node scripts/package.mjs
