@@ -7,6 +7,13 @@
  * 模型名，以及按各家特性调整批量大小。
  *
  * 新增一家：在这里加一条，然后同步 apps/extension/manifest.json 的 host_permissions。
+ * （test/versions.test.mjs 里有一条测试会遍历所有 provider 的默认 endpoint，
+ *   校验它被 manifest 的 host_permissions 覆盖，漏改会直接失败。）
+ *
+ * 关于通配符的边界：Chrome 的 host 通配符是纯字符串后缀匹配
+ * （见 Chromium extensions/common/url_pattern.cc 的 MatchesHost：
+ *  EndsWith(test_host, pattern_host) && 前一个字符是 '.'），**不限制层级数**。
+ * 所以 *.maas.aliyuncs.com 能覆盖 ws-abc.cn-beijing.maas.aliyuncs.com 这种两级子域。
  */
 export const PROVIDERS = {
   typesafe: {

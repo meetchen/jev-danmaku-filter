@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { PROVIDERS } from '../src/core/providers.js';
 
 const read = path => JSON.parse(readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'));
 
@@ -62,4 +63,50 @@ test('扩展里的相对 import 全部能解析到实际文件', () => {
     }
   }
   assert.deepEqual(problems, [], `这些 import 指向不存在的文件：${problems.join(', ')}`);
+});
+
+/**
+ * 按 Chromium 的规则判断一个 host 是否被某个 match pattern 覆盖。
+ * 逻辑照抄 extensions/common/url_pattern.cc 的 MatchesHost：
+ * 剥掉开头的 "*."（记下允许子域），然后要求后缀相等且前一个字符是 '.'。
+ */
+function patternCoversHost(pattern, host) {
+  const match = /^([a-z*]+):\/\/([^/]*)/.exec(pattern);
+  if (!match) return false;
+  const [, scheme, hostPattern] = match;
+  if (scheme !== '*' && scheme !== 'https') return false;
+
+  let patternHost = hostPattern.replace(/^\*\.?/, '');
+  const subdomains = hostPattern.startsWith('*');
+  if (!subdomains && hostPattern !== '*') patternHost = hostPattern;
+  if (patternHost === '') return true;              // 形如 https://*/*
+  if (host === patternHost) return true;            // 裸域也匹配
+  if (!subdomains) return false;
+  if (host.length <= patternHost.length + 1) return false;
+  if (!host.endsWith(patternHost)) return false;
+  return host[host.length - patternHost.length - 1] === '.';
+}
+
+test('每个内置 provider 的默认 endpoint 都被 manifest 的 host_permissions 覆盖', () => {
+  // 「加了 provider 却忘了改 manifest」是只在运行时炸的坑，这里静态拦掉。
+  const manifest = read('apps/extension/manifest.json');
+  const allowed = manifest.host_permissions ?? [];
+
+  for (const provider of Object.values(PROVIDERS)) {
+    const host = new URL(provider.endpoint.replace('{workspaceId}', 'ws-check')).hostname;
+    const covered = allowed.some(pattern => patternCoversHost(pattern, host));
+    assert.ok(covered, `provider ${provider.id} 的 endpoint 主机 ${host} 没有被 host_permissions 覆盖，运行时会被 CORS 拦掉`);
+  }
+});
+
+test('host 通配符确实覆盖多级子域（阿里端点就是两级）', () => {
+  // 这条锁住的是一个容易想当然的地方：*.maas.aliyuncs.com 到底能不能匹配
+  // ws-abc.cn-beijing.maas.aliyuncs.com？Chromium 的实现是后缀匹配，
+  // 不限制层级，所以能。换 pattern 时别把它改窄了。
+  assert.equal(patternCoversHost('https://*.maas.aliyuncs.com/*', 'ws-abc.cn-beijing.maas.aliyuncs.com'), true);
+  assert.equal(patternCoversHost('https://*.maas.aliyuncs.com/*', 'ws-abc.ap-southeast-1.maas.aliyuncs.com'), true);
+  assert.equal(patternCoversHost('https://*.maas.aliyuncs.com/*', 'maas.aliyuncs.com'), true, '裸域也应匹配');
+  assert.equal(patternCoversHost('https://*.maas.aliyuncs.com/*', 'evil-maas.aliyuncs.com'), false, '不能误匹配后缀相同的别的域');
+  assert.equal(patternCoversHost('https://api.typesafe.ai/*', 'api.typesafe.ai'), true);
+  assert.equal(patternCoversHost('https://api.typesafe.ai/*', 'evil.api.typesafe.ai'), false, '没有通配符就不该匹配子域');
 });
