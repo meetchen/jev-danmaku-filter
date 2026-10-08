@@ -25,6 +25,7 @@ export const PROVIDERS = {
     // 官方明确说「加问题几乎不改变响应时间」，所以批量只受 state+questions ≤ 64K token 约束。
     maxQuestions: 500,
     docs: 'https://console.typesafe.ai/',
+    docsLabel: '去 TypeSafe 控制台拿 API Key ↗',
   },
   bailian: {
     id: 'bailian',
@@ -37,7 +38,8 @@ export const PROVIDERS = {
     // 这里取 32 折中 —— 问题数越多单次越慢，但请求数越少，实测后再调。
     maxQuestions: 32,
     needsWorkspace: true,
-    docs: 'https://help.aliyun.com/zh/model-studio/decision-model-api',
+    docs: 'https://bailian.console.aliyun.com/',
+    docsLabel: '去百炼控制台拿 API Key 和接口地址 ↗',
   },
 };
 
@@ -76,6 +78,20 @@ export function resolveProvider(settings = {}) {
     configured: !unresolved,
     needsWorkspace: Boolean(preset.needsWorkspace),
   };
+}
+
+/**
+ * 从判定端点推出「列出可用模型」的地址。两家都是 OpenAI 兼容风格：
+ * System One 端点是 .../v1/systemone，模型列表是 .../v1/models。
+ * 模型名报错时用它来自动诊断「这个 Key 到底能用哪些模型」。
+ */
+export function modelsEndpoint(endpoint) {
+  try {
+    const url = new URL(endpoint);
+    if (!/\/systemone\/?$/.test(url.pathname)) return null;
+    url.pathname = url.pathname.replace(/\/systemone\/?$/, '/models');
+    return url.toString();
+  } catch { return null; }
 }
 
 /** endpoint 属于哪个主机，用于申请运行时权限。 */

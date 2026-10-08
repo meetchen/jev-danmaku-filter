@@ -110,3 +110,23 @@ test('host 通配符确实覆盖多级子域（阿里端点就是两级）', () 
   assert.equal(patternCoversHost('https://api.typesafe.ai/*', 'api.typesafe.ai'), true);
   assert.equal(patternCoversHost('https://api.typesafe.ai/*', 'evil.api.typesafe.ai'), false, '没有通配符就不该匹配子域');
 });
+
+test('popup 的 HTML 与 JS 对得上', () => {
+  // 面板是纯 DOM 操作，改了 HTML 的 id 却忘了改 JS，只有在浏览器里点开才炸。
+  const html = readFileSync(resolve('apps/extension/popup.html'), 'utf8');
+  const js = readFileSync(resolve('apps/extension/popup.js'), 'utf8');
+  const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]));
+
+  const used = [...js.matchAll(/\$\('([^']+)'\)|getElementById\('([^']+)'\)/g)].map(m => m[1] ?? m[2]);
+  const missing = [...new Set(used)].filter(id => !ids.has(id));
+  assert.deepEqual(missing, [], `popup.js 引用了 HTML 里不存在的 id：${missing.join(', ')}`);
+
+  const dangling = [...html.matchAll(/<label[^>]*\bfor="([^"]+)"/g)]
+    .map(m => m[1]).filter(id => !ids.has(id));
+  assert.deepEqual(dangling, [], `label for 指向不存在的 id：${dangling.join(', ')}`);
+
+  // 曾经踩过：给 label 设了 display，盖掉 [hidden] 的 display:none，隐藏字段变成常显
+  const css = readFileSync(resolve('apps/extension/popup.css'), 'utf8');
+  const hidesHidden = /\[hidden\]\s*\{[^}]*display:\s*none/.test(css);
+  assert.ok(hidesHidden, 'popup.css 必须显式处理 [hidden]，否则作者样式会盖掉它');
+});

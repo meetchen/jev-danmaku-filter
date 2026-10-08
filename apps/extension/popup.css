@@ -1,32 +1,43 @@
 :root { color-scheme: light; }
-body { width: 300px; margin: 0; padding: 14px; font: 13px/1.6 -apple-system, "Microsoft YaHei", sans-serif; color: #1f2937; background: #fbfbf9; }
-header { display: flex; align-items: center; justify-content: space-between; }
+body { width: 320px; margin: 0; padding: 14px; font: 13px/1.6 -apple-system, "Microsoft YaHei", sans-serif; color: #1f2937; background: #fbfbf9; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .title { font-weight: 600; display: flex; flex-direction: column; }
 .title small { font-weight: 400; font-size: 9px; letter-spacing: .12em; color: #9ca3af; }
 .intro { color: #6b7280; margin: 10px 0; }
-#status { background: #eef4ee; border: 1px solid #dbe6db; border-radius: 8px; padding: 8px 10px; color: #2f5d43; }
+#status { background: #eef4ee; border: 1px solid #dbe6db; border-radius: 8px; padding: 8px 10px; color: #2f5d43; word-break: break-word; }
 #status.error { background: #fdefef; border-color: #f3d5d5; color: #9b2c2c; }
+
+/* 开关 */
 .switch { position: relative; display: inline-block; width: 42px; height: 24px; flex: none; }
 .switch input { opacity: 0; width: 0; height: 0; }
 .switch span { position: absolute; inset: 0; background: #d1d5db; border-radius: 24px; transition: .15s; cursor: pointer; }
 .switch span::after { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .15s; }
 .switch input:checked + span { background: #34a06a; }
 .switch input:checked + span::after { transform: translateX(18px); }
+
+/* 折叠区 */
 details { margin-top: 12px; border-top: 1px solid #e5e7eb; padding-top: 10px; }
 summary { cursor: pointer; color: #4b5563; }
-form { display: flex; gap: 6px; margin: 8px 0; }
-input[type=password] { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px; }
-button { padding: 6px 10px; border: 0; border-radius: 6px; background: #34a06a; color: #fff; font-size: 12px; cursor: pointer; }
-button:disabled { opacity: .6; cursor: default; }
-a { font-size: 11px; color: #6b7280; }
 
-#connection label { display: block; margin: 10px 0 4px; font-size: 12px; color: #4b5563; }
-#connection select, #connection input[type=text], #connection input:not([type]) {
-  width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #d1d5db;
-  border-radius: 6px; font-size: 12px;
+/* 表单是竖排的：字段多，横排会被压成一个字一行。
+   注意不要在这里给 label 设 display —— 作者样式会盖掉 [hidden] 的 display:none。 */
+#connect-form { display: flex; flex-direction: column; gap: 6px; margin: 12px 0 0; }
+#connect-form label { margin-top: 4px; font-size: 12px; color: #4b5563; }
+#connect-form select,
+#connect-form input[type=password],
+#connect-form input:not([type]) {
+  width: 100%; box-sizing: border-box; padding: 6px 8px;
+  border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px;
+  background: #fff; font-family: inherit;
 }
-.hint { margin: 4px 0 0; font-size: 11px; line-height: 1.5; color: #6b7280; }
-.advanced { margin: 10px 0 0; border: 0; padding: 0; }
-.advanced summary { font-size: 11px; color: #6b7280; }
-.advanced input { margin-top: 6px; }
+#connect-form [hidden] { display: none !important; }
+#connect-form button { margin-top: 8px; align-self: stretch; }
+#connect-form .advanced { margin: 8px 0 0; border-top: 0; padding-top: 0; }
+#connect-form .advanced summary { font-size: 11px; color: #6b7280; }
+#connect-form .advanced input { margin-top: 6px; }
+
+.hint { margin: 2px 0 0; font-size: 11px; line-height: 1.5; color: #6b7280; }
+button { padding: 7px 10px; border: 0; border-radius: 6px; background: #34a06a; color: #fff; font-size: 12px; cursor: pointer; font-family: inherit; }
+button:disabled { opacity: .6; cursor: default; }
+#provider-docs { display: inline-block; margin-top: 10px; font-size: 11px; color: #6b7280; }
 .privacy { margin: 12px 0 0; font-size: 11px; line-height: 1.5; color: #9ca3af; }

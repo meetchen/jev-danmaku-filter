@@ -4,7 +4,7 @@
 import { SPOILER, RULE_VERSION } from './vendor/core/rules.js';
 import { classifyTexts } from './vendor/core/batch.js';
 import { MapCache } from './vendor/core/memory.js';
-import { PROVIDERS, DEFAULT_PROVIDER, resolveProvider } from './vendor/core/providers.js';
+import { PROVIDERS, DEFAULT_PROVIDER, resolveProvider, modelsEndpoint } from './vendor/core/providers.js';
 
 const DEFAULTS = { enabled: true, provider: DEFAULT_PROVIDER, workspaceId: '', endpoint: '', model: '' };
 const MAX_TEXTS_PER_CALL = 20_000;
@@ -25,6 +25,23 @@ const today = () => {
 };
 
 const provider = () => resolveProvider(settings);
+
+/**
+ * 模型名不对（model_not_found）是最难自查的一类错 —— 名字看着没错，但该 Key /
+ * 该业务空间下根本没有这个模型。失败时顺手查一下可用列表，直接告诉用户能用什么。
+ * 只用于 TEST，不打扰正常过滤流程。
+ */
+async function availableModels(active) {
+  const url = modelsEndpoint(active.endpoint);
+  if (!url) return null;
+  try {
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` }, cache: 'no-store' });
+    if (!response.ok) return null;
+    const json = await response.json();
+    const ids = (json.data ?? json.models ?? []).map(model => model?.id ?? model?.name).filter(Boolean);
+    return ids.length ? ids : null;
+  } catch { return null; }
+}
 
 const ready = (async () => {
   // API Key 只保存在本机扩展存储里。限制为仅可信上下文可读，content script 也读不到。
@@ -61,7 +78,7 @@ const state = () => ({
   configured: Boolean(apiKey),
   provider: settings.provider,
   providerLabel: provider().label,
-  providers: Object.values(PROVIDERS).map(({ id, label, hint, model, docs, needsWorkspace }) => ({ id, label, hint, model, docs, needsWorkspace })),
+  providers: Object.values(PROVIDERS).map(({ id, label, hint, model, docs, docsLabel, needsWorkspace }) => ({ id, label, hint, model, docs, docsLabel, needsWorkspace })),
   endpoint: provider().endpoint,
   model: provider().model,
   providerReady: provider().configured,
@@ -151,8 +168,16 @@ async function handle(message, sender) {
       return state();
     }
     case 'TEST': {
-      if (!apiKey) throw new Error('请先填写 TypeSafe API Key。');
-      await classify({ texts: ['这是一条连接测试，不是真实弹幕。'], context: { title: '连接测试' } }, null);
+      if (!apiKey) throw new Error('请先填写 API Key。');
+      const active = provider();
+      try {
+        await classify({ texts: ['这是一条连接测试，不是真实弹幕。'], context: { title: '连接测试' } }, null);
+      } catch (error) {
+        const models = await availableModels(active);
+        if (!models) throw error;
+        // 报错里带上可用模型，省得用户对着一个"看着没错"的模型名反复试
+        throw new Error(`${error.message} —— 这个 Key 在 ${new URL(active.endpoint).host} 下可用的模型：${models.slice(0, 20).join('、')}`);
+      }
       return state();
     }
     default:

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PROVIDERS, resolveProvider, endpointOrigin, normalizeEndpoint } from '../src/core/providers.js';
+import { PROVIDERS, resolveProvider, endpointOrigin, normalizeEndpoint, modelsEndpoint } from '../src/core/providers.js';
 import { SPOILER } from '../src/core/rules.js';
 import { buildRequest, parseAnswers } from '../src/core/jev.js';
 import { chunkEntries, classifyTexts } from '../src/core/batch.js';
@@ -132,4 +132,17 @@ test('endpointOrigin 用于申请运行时权限', () => {
   assert.equal(endpointOrigin('https://ws-1.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/systemone'),
     'https://ws-1.cn-beijing.maas.aliyuncs.com/*');
   assert.equal(endpointOrigin('不是 URL'), null);
+});
+
+test('模型列表地址从判定端点推导出来（用于 model_not_found 自动诊断）', () => {
+  assert.equal(
+    modelsEndpoint('https://ws-x.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/systemone'),
+    'https://ws-x.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/models',
+  );
+  assert.equal(
+    modelsEndpoint('https://api.typesafe.ai/v1/systemone'),
+    'https://api.typesafe.ai/v1/models',
+  );
+  assert.equal(modelsEndpoint('https://custom/endpoint'), null, '不是 /systemone 结尾就不该瞎猜');
+  assert.equal(modelsEndpoint('乱写的'), null);
 });

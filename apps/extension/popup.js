@@ -18,6 +18,7 @@ function renderProviders() {
     option.textContent = provider.label;
     option.dataset.hint = provider.hint ?? '';
     option.dataset.docs = provider.docs ?? '';
+    option.dataset.docsLabel = provider.docsLabel ?? '';
     option.dataset.needsWorkspace = String(Boolean(provider.needsWorkspace));
     option.dataset.model = provider.model ?? '';
     select.append(option);
@@ -32,6 +33,7 @@ function syncProviderFields() {
     needsWorkspace ? '地址填 ws-xxxx（业务空间 ID）或控制台给你的完整域名都可以，面板会自动补全。' : '',
   ].filter(Boolean).join(' ');
   $('provider-docs').href = option?.dataset.docs || 'https://console.typesafe.ai/';
+  $('provider-docs').textContent = option?.dataset.docsLabel || '去哪拿 API Key ↗';
   $('workspace').hidden = !needsWorkspace;
   $('workspace-label').hidden = !needsWorkspace;
 }
@@ -49,7 +51,7 @@ function render() {
   const target = state.providerLabel ? `${state.providerLabel} · ${state.model}` : state.model;
   const text = state.error
     || (!state.configured ? '先填 API Key。'
-      : !state.providerReady ? '判定后端还缺配置（多半是业务空间 ID）。'
+      : !state.providerReady ? '判定后端还缺配置：把接口地址填上。'
         : !state.enabled ? '已关闭，弹幕恢复原样。'
           : `已开启 · ${target} · 缓存 ${state.cached} 条 · 今日 ${state.usedToday ?? 0}/${state.dailyBudget ?? '-'} 条`);
   $('status').textContent = text;
