@@ -93,6 +93,8 @@ export async function classifyTexts(texts, options = {}) {
 
   let model = initialModel;
   if (backend?.model) model = backend.model;
+  // 后端可以覆盖规则里的全局阈值 —— 不同厂商的量表刻度不一样。
+  const effectiveRule = backend?.threshold == null ? rule : { ...rule, threshold: backend.threshold };
   if (kind === 'chat' && !Array.isArray(rule.levels)) {
     throw new Error(`聊天后端要求 rule 带有序量表（levels），而 ${rule.id} 是 ${rule.type} 规则。choice/noul 这类只能配 systemone 后端。`);
   }
@@ -100,17 +102,18 @@ export async function classifyTexts(texts, options = {}) {
     throw new Error(`聊天后端 ${backend?.id ?? ''} 的端点不像 chat/completions：${endpoint}。多半是没把 backend 或 kind 传下来。`);
   }
 
+  const threshold = effectiveRule.threshold ?? 0.6;
   const unique = [...new Set(texts.filter(t => typeof t === 'string' && t.trim()))];
   const results = new Map();
   const pending = [];
 
   if (useCache) {
     for (const text of unique) {
-      const hit = cache.get(await cacheKey(rule, model, text));
+      const hit = cache.get(await cacheKey(effectiveRule, model, text));
       if (hit) {
         // 缓存里存的是原始概率，按当前阈值重新判决，所以调阈值不用重跑。
         const choice = typeof hit.v === 'number'
-          ? (hit.v >= (rule.threshold ?? 0.6) ? rule.options[0] : rule.options[1])
+          ? (hit.v >= threshold ? rule.options[0] : rule.options[1])
           : hit.c;
         results.set(text, { choice, severity: hit.v ?? null, source: 'cache' });
       }
@@ -154,13 +157,15 @@ export async function classifyTexts(texts, options = {}) {
             }
             return { response, severities, missing };
           }
-          return { response, answers: parseAnswers(response, chunk.length, rule) };
+          // 必须传 effectiveRule：parseAnswers 就是按 rule.threshold 决定 choice 的地方，
+          // 传原来的 rule 会让「后端覆盖阈值」整个失效。
+          return { response, answers: parseAnswers(response, chunk.length, effectiveRule) };
         }, { maxRetries, signal, onRetry });
 
         const answers = isChat
           ? data.severities.map(severity => ({
             severity,
-            choice: (severity ?? 0) >= (rule.threshold ?? 0.6) ? rule.options[0] : rule.options[1],
+            choice: (severity ?? 0) >= threshold ? rule.options[0] : rule.options[1],
           }))
           : data.answers;
         if (isChat && data.missing.length) stats.incomplete = (stats.incomplete ?? 0) + data.missing.length;
@@ -168,7 +173,8 @@ export async function classifyTexts(texts, options = {}) {
         for (let i = 0; i < chunk.length; i++) {
           const text = chunk[i].text;
           results.set(text, { ...answers[i], source: 'api' });
-          if (useCache) cache.set(await cacheKey(rule, model, text), { c: answers[i].choice, v: answers[i].severity, m: model, r: rule.id });
+          // 缓存存的仍是原始严重度，所以调阈值不用重跑；但键要把 model 与后端算进去。
+          if (useCache) cache.set(await cacheKey(effectiveRule, model, text), { c: answers[i].choice, v: answers[i].severity, m: model, r: effectiveRule.id });
         }
         stats.requested += chunk.length;
         stats.inputTokens += isChat

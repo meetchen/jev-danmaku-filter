@@ -38,9 +38,13 @@ export const PROVIDERS = {
     endpoint: 'https://{workspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/systemone',
     endpointPath: '/compatible-mode/v1/systemone',
     model: 'decision-model-preview',
-    // 官方文档：问题数不设上限，但「建议 ≤ 16，延迟随问题数近线性增长」。
-    // 这里取 32 折中 —— 问题数越多单次越慢，但请求数越少，实测后再调。
-    maxQuestions: 32,
+    // 官方文档写「问题数不设上限（建议 ≤ 16）」，但**接口实际是硬限制**：
+    // 超过就 400「questions: N exceeds the limit of 16」。所以这里必须是 16。
+    maxQuestions: 16,
+    // 这个模型的量表刻度与 JEV 不一致，整体压低（实测正样本落在 0.23~0.70，
+    // 而 JEV 落在 0.61~0.77）。所以阈值必须能按后端单独标定，不能全局共用一个。
+    // 实测：阈值 0.6 → F1 0.35（recall 仅 0.25）；阈值 0.4 → F1 0.77。
+    threshold: 0.4,
     needsWorkspace: true,
     docs: 'https://bailian.console.aliyun.com/',
     docsLabel: '去百炼控制台拿 API Key 和接口地址 ↗',
@@ -97,6 +101,8 @@ export function resolveProvider(settings = {}) {
     endpoint,
     model: String(settings.model ?? '').trim() || preset.model,
     maxQuestions: preset.maxQuestions,
+    // 后端可覆盖全局阈值。不同厂商的量表刻度不一样，共用一个阈值是错的。
+    threshold: preset.threshold,
     // 每个后端读自己的环境变量名，否则 .env 里同时有两条 key 时必然抓错一条。
     envKey: preset.envKey ?? 'TYPESAFE_API_KEY',
     configured: !unresolved,

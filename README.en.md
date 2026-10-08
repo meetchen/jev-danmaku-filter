@@ -107,6 +107,20 @@ questions to put in one request, which affects batch size and latency: TypeSafe 
 barely changes response time (cap 500, bounded only by the 64K token limit), while Alibaba's docs say
 latency grows roughly linearly with question count and recommend ≤16 (we cap at 32).
 
+Measured pictures of the three backends:
+
+| Backend | F1 (29 samples) | Warm-up | Needs a workspace | Direct from China |
+| --- | --- | --- | --- | --- |
+| TypeSafe JEV | 0.88–0.92 | ~9 s | no | no |
+| Alibaba `qwen-flash` (chat) | median 0.90 | ~60–75 s | no | yes |
+| Alibaba decision model | 0.77 | ~17 s | yes | yes |
+
+**A compatible protocol is not an equivalent model.** Alibaba's decision model implements the same
+System One shape, but its scale is compressed relative to JEV: the same spoiler gets 0.23–0.70 instead
+of JEV's 0.61–0.77, so the shared 0.6 threshold yields F1 0.35 instead of 0.92. Thresholds therefore
+have to be calibrated **per backend** (`threshold` in `providers.js`; Alibaba's optimum is 0.4).
+Also note Alibaba hard-caps a request at 16 questions, despite the docs saying there is no cap.
+
 There is also a **chat-model backend** for when the decision model is not available on an account:
 it builds its own prompt, asks for JSON, and needs only an `sk-` key — no workspace. Measured on the
 same 29 labelled samples, `qwen-flash` reaches a median F1 of 0.90 (JEV scores 0.88–0.92), but warm-up

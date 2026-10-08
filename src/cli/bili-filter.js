@@ -76,7 +76,8 @@ async function main() {
   const model = provider.model;
   const verbose = Boolean(options.verbose);
 
-  process.stdout.write(`▸ 判定后端：${provider.label} · ${provider.endpoint} · ${model}\n`);
+  process.stdout.write(`▸ 判定后端：${provider.label} · ${provider.endpoint} · ${model}`
+    + `${provider.threshold != null ? ` · 阈值 ${provider.threshold}` : ''}\n`);
   process.stdout.write(`▸ 解析视频 ${input}\n`);
   const { video, items, source } = await fetchDanmaku(input, { limit: Number.isFinite(limit) ? limit : undefined, verbose });
   process.stdout.write(`  标题：${video.title}\n`);

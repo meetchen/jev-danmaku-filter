@@ -146,3 +146,9 @@ test('模型列表地址从判定端点推导出来（用于 model_not_found 自
   assert.equal(modelsEndpoint('https://custom/endpoint'), null, '不是 /systemone 结尾就不该瞎猜');
   assert.equal(modelsEndpoint('乱写的'), null);
 });
+
+test('后端可以覆盖全局阈值（不同厂商的量表刻度不一样）', () => {
+  assert.equal(resolveProvider({ provider: 'typesafe' }).threshold, undefined, '未覆盖就跟随规则内置阈值');
+  assert.equal(resolveProvider({ provider: 'bailian' }).threshold, 0.4, '阿里决策模型的刻度整体偏低，实测最优是 0.4');
+  assert.equal(resolveProvider({ provider: 'bailianChat' }).threshold, undefined);
+});

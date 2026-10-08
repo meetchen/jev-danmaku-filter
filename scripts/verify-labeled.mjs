@@ -38,7 +38,8 @@ const envText = readFileSync(new URL('../.env', import.meta.url), 'utf8');
 const fromEnv = name => envText.match(new RegExp(`^${name}=(.*)$`, 'm'))?.[1]?.trim();
 const apiKey = (arg('key') || fromEnv(provider.envKey) || '').trim();
 if (!apiKey) { console.error(`没找到 API Key（.env 里的 ${provider.envKey}）。`); process.exit(1); }
-console.error(`判定后端：${provider.label} · ${provider.endpoint} · ${provider.model}\n`);
+console.error(`判定后端：${provider.label} · ${provider.endpoint} · ${provider.model}`
+  + `${provider.threshold != null ? ` · 阈值 ${provider.threshold}` : ''}\n`);
 
 // 三种问法，用同一套规则语义，端到端跑同一条管线
 const VARIANTS = {
