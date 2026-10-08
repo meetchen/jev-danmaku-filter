@@ -109,9 +109,7 @@ async function classify(message, sender) {
   const { results, stats } = await classifyTexts(allowed, {
     apiKey,
     rule: SPOILER,
-    model: active.model,
-    endpoint: active.endpoint,
-    maxQuestions: active.maxQuestions,
+    backend: active,
     cache,
     context: {
       title: String(message.context?.title ?? '').slice(0, 240),

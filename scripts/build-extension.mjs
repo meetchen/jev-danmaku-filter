@@ -10,10 +10,13 @@ const EXT = join(ROOT, 'apps/extension');
 
 // background.js 是 ES module，可以直接 import；需要复制的就是它依赖的那些纯逻辑模块。
 const CORE = ['rules.js', 'tokens.js', 'hash.js', 'memory.js', 'jev.js', 'batch.js', 'providers.js'];
+const BACKENDS = ['chat.js'];
 
 await rm(join(EXT, 'vendor'), { recursive: true, force: true });
 await mkdir(join(EXT, 'vendor/core'), { recursive: true });
+await mkdir(join(EXT, 'vendor/core/backends'), { recursive: true });
 for (const file of CORE) await copyFile(join(ROOT, 'src/core', file), join(EXT, 'vendor/core', file));
+for (const file of BACKENDS) await copyFile(join(ROOT, 'src/core/backends', file), join(EXT, 'vendor/core/backends', file));
 
 await writeFile(join(EXT, 'page.js'), await composeBundle(ROOT, PAGE_SOURCES));
 await writeFile(join(EXT, 'content.js'), await composeBundle(ROOT, ['apps/extension/src/content-runtime.js']));

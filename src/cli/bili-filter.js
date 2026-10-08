@@ -64,7 +64,6 @@ async function main() {
   const input = options._[0];
   if (!input || options.help) { process.stdout.write(USAGE.trimStart()); return; }
 
-  const apiKey = options.key && options.key !== true ? options.key : process.env.TYPESAFE_API_KEY;
   const limit = options.limit ? Number(options.limit) : Infinity;
   const provider = resolveProvider({
     provider: options.provider && options.provider !== true ? String(options.provider) : undefined,
@@ -73,6 +72,7 @@ async function main() {
     model: options.model && options.model !== true ? String(options.model) : undefined,
   });
   if (!provider.configured) throw new Error(`provider=${provider.id} 还缺配置（大概率是 --workspace）。`);
+  const apiKey = (options.key && options.key !== true ? options.key : process.env[provider.envKey]) || '';
   const model = provider.model;
   const verbose = Boolean(options.verbose);
 
@@ -117,9 +117,8 @@ async function main() {
     cache,
     context,
     atByText,
-    maxQuestions: provider.maxQuestions,
+    backend: provider,
     concurrency: options.concurrency ? Number(options.concurrency) : 6,
-    endpoint: provider.endpoint,
     log: verbose ? (m => process.stderr.write(`  ${m}\n`)) : null,
     onProgress: ({ done, total }) => {
       if (done < total) process.stderr.write(`\r  批次 ${done}/${total} 完成   `);

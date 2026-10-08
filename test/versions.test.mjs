@@ -33,6 +33,7 @@ test('权限与主机范围是明确列举的，不是偷偷放宽', () => {
   assert.deepEqual(manifest.host_permissions, [
     'https://api.typesafe.ai/*',
     'https://*.maas.aliyuncs.com/*',
+    'https://dashscope.aliyuncs.com/*',
   ], '固定 host 权限只应包含内置的判定后端，加厂商时同步更新这条断言');
   // 自定义后端需要任意主机，但必须是 optional，由用户在面板里当场授权，不能默认拿到。
   assert.deepEqual(manifest.optional_host_permissions, ['https://*/*'],

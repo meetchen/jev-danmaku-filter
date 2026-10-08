@@ -107,7 +107,11 @@ questions to put in one request, which affects batch size and latency: TypeSafe 
 barely changes response time (cap 500, bounded only by the 64K token limit), while Alibaba's docs say
 latency grows roughly linearly with question count and recommend ≤16 (we cap at 32).
 
-Measure any change with `npm run verify -- --provider bailian --workspace ws-xxx`.
+There is also a **chat-model backend** for when the decision model is not available on an account:
+it builds its own prompt, asks for JSON, and needs only an `sk-` key — no workspace. Measured on the
+same 29 labelled samples, `qwen-flash` reaches a median F1 of 0.90 (JEV scores 0.88–0.92), but warm-up
+for a 6,700-danmaku episode takes ~60–75 s instead of ~9 s, because a chat model generates answers
+sequentially. Measure any change with `npm run verify -- --provider <id>`.
 
 ## Security and privacy
 
@@ -140,7 +144,7 @@ node src/cli/bili-filter.js BV1AzYs6bEeX --out out/result.json
 ## Development
 
 ```sh
-npm test          # 34 tests, no real API calls
+npm test          # 47 tests, no real API calls
 npm run build     # build the extension
 npm run package   # zip; validates the manifest and refuses to ship seed.json
 npm run verify    # measure P/R/F1 of the current config on 29 hand-labelled danmaku

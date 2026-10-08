@@ -32,10 +32,12 @@ if (!provider.configured) {
   console.error(`provider=${provider.id} 还缺配置（多半是 --workspace）。`);
   process.exit(1);
 }
-// 各家的 key 环境变量名不同：TypeSafe 用 TYPESAFE_API_KEY，百炼用 DASHSCOPE_API_KEY。
+// 按 provider 读它自己的环境变量。原来是一个正则同时匹配两个名字，
+// .env 里两条 key 都有时会抓到靠前的那条 —— 必然拿 TypeSafe 的 key 去打阿里。
 const envText = readFileSync(new URL('../.env', import.meta.url), 'utf8');
-const apiKey = (arg('key') || envText.match(/(?:TYPESAFE_API_KEY|DASHSCOPE_API_KEY)=(.*)/)?.[1] || '').trim();
-if (!apiKey) { console.error('没找到 API Key（.env 里的 TYPESAFE_API_KEY 或 DASHSCOPE_API_KEY）。'); process.exit(1); }
+const fromEnv = name => envText.match(new RegExp(`^${name}=(.*)$`, 'm'))?.[1]?.trim();
+const apiKey = (arg('key') || fromEnv(provider.envKey) || '').trim();
+if (!apiKey) { console.error(`没找到 API Key（.env 里的 ${provider.envKey}）。`); process.exit(1); }
 console.error(`判定后端：${provider.label} · ${provider.endpoint} · ${provider.model}\n`);
 
 // 三种问法，用同一套规则语义，端到端跑同一条管线
@@ -54,10 +56,17 @@ const VARIANTS = {
 
 console.log('每条文本的严重度（0~1），❌ = 判错\n');
 const summary = [];
-for (const [name, rule] of Object.entries(VARIANTS)) {
+// 聊天后端只有量表可问；choice/noul 是 System One 专有的原语，跳过并说明。
+const variants = Object.entries(VARIANTS)
+  .filter(([, rule]) => provider.kind !== 'chat' || Array.isArray(rule.levels));
+if (variants.length < Object.keys(VARIANTS).length) {
+  const skipped = Object.keys(VARIANTS).length - variants.length;
+  console.error(`（聊天后端不含 typed 原语，跳过 ${skipped} 个 choice/noul 变体）\n`);
+}
+
+for (const [name, rule] of variants) {
   const { results } = await classifyTexts(LABELED.map(([text]) => text), {
-    apiKey, rule, cache: new NullCache(), endpoint: provider.endpoint, model: provider.model,
-    maxQuestions: provider.maxQuestions,
+    apiKey, rule, cache: new NullCache(), backend: provider,
     context: { title: '白色巨塔 · 第9集', description: '' }, concurrency: 4,
   });
   let tp = 0, fp = 0, fn = 0, tn = 0;

@@ -6,6 +6,7 @@ import {
 } from './jev.js';
 import { estimateTokens } from './tokens.js';
 import { NullCache } from './memory.js';
+import { buildChatRequest, parseChatAnswers, parseChatUsage } from './backends/chat.js';
 
 const sleep = (ms, signal) => new Promise((resolve, reject) => {
   const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
@@ -51,7 +52,8 @@ export function chunkEntries(entries, {
 async function withRetry(run, { maxRetries, signal, onRetry }) {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await run();
+      // 把尝试序号传进去：聊天模型偶尔会漏几条，最后一次尝试就得接受部分结果。
+      return await run(attempt);
     } catch (error) {
       if (error?.name === 'AbortError') throw error;
       if (!error?.retryable || attempt >= maxRetries) throw error;
@@ -70,21 +72,33 @@ export async function classifyTexts(texts, options = {}) {
   const {
     apiKey,
     rule = SPOILER,
-    model = DEFAULT_MODEL,
+    model: initialModel = DEFAULT_MODEL,
     cache = new NullCache(),
     context = {},
-    maxQuestions = Infinity,
+    // 优先用整个 backend 对象：逐个字段往下传必然漏掉某个（已经漏过一次 kind）。
+    backend = null,
+    kind = backend?.kind ?? 'systemone',
+    maxQuestions = backend?.maxQuestions ?? Infinity,
     concurrency = 2,
     maxRetries = 3,
     onProgress,
     onRetry,
     signal,
     fetchImpl = fetch,
-    endpoint,
+    endpoint = backend?.endpoint,
     atByText = new Map(),
     useCache = true,
     log = null,
   } = options;
+
+  let model = initialModel;
+  if (backend?.model) model = backend.model;
+  if (kind === 'chat' && !Array.isArray(rule.levels)) {
+    throw new Error(`聊天后端要求 rule 带有序量表（levels），而 ${rule.id} 是 ${rule.type} 规则。choice/noul 这类只能配 systemone 后端。`);
+  }
+  if (kind === 'chat' && !/\/chat\/completions\/?$/.test(endpoint ?? '')) {
+    throw new Error(`聊天后端 ${backend?.id ?? ''} 的端点不像 chat/completions：${endpoint}。多半是没把 backend 或 kind 传下来。`);
+  }
 
   const unique = [...new Set(texts.filter(t => typeof t === 'string' && t.trim()))];
   const results = new Map();
@@ -126,20 +140,41 @@ export async function classifyTexts(texts, options = {}) {
       if (index >= chunks.length) return;
       const chunk = chunks[index];
       try {
-        const body = buildRequest(chunk, { rule, model, ...context });
-        const data = await withRetry(
-          () => ask({ apiKey, body, signal, fetchImpl, ...(endpoint ? { endpoint } : {}) }),
-          { maxRetries, signal, onRetry },
-        );
-        const answers = parseAnswers(data, chunk.length, rule);
+        const isChat = kind === 'chat';
+        const body = isChat
+          ? buildChatRequest(chunk, rule, { model, ...context })
+          : buildRequest(chunk, { rule, model, ...context });
+        const data = await withRetry(async attempt => {
+          const response = await ask({ apiKey, body, signal, fetchImpl, ...(endpoint ? { endpoint } : {}) });
+          if (isChat) {
+            const { severities, missing } = parseChatAnswers(response, chunk.length, rule);
+            // 漏几条就重试；最后一次尝试接受部分结果，缺的按放行处理并记一笔。
+            if (missing.length && attempt < maxRetries) {
+              throw Object.assign(new Error(`模型漏了 ${missing.length} 条，重试。`), { retryable: true });
+            }
+            return { response, severities, missing };
+          }
+          return { response, answers: parseAnswers(response, chunk.length, rule) };
+        }, { maxRetries, signal, onRetry });
+
+        const answers = isChat
+          ? data.severities.map(severity => ({
+            severity,
+            choice: (severity ?? 0) >= (rule.threshold ?? 0.6) ? rule.options[0] : rule.options[1],
+          }))
+          : data.answers;
+        if (isChat && data.missing.length) stats.incomplete = (stats.incomplete ?? 0) + data.missing.length;
+
         for (let i = 0; i < chunk.length; i++) {
           const text = chunk[i].text;
           results.set(text, { ...answers[i], source: 'api' });
           if (useCache) cache.set(await cacheKey(rule, model, text), { c: answers[i].choice, v: answers[i].severity, m: model, r: rule.id });
         }
         stats.requested += chunk.length;
-        stats.inputTokens += data?.usage?.input_tokens ?? estimateTokens(body);
-        log?.(`批次 ${index + 1}/${chunks.length}：${chunk.length} 条，模型 ${data?.model ?? model}`);
+        stats.inputTokens += isChat
+          ? parseChatUsage(data.response).inputTokens
+          : (data.response?.usage?.input_tokens ?? estimateTokens(body));
+        log?.(`批次 ${index + 1}/${chunks.length}：${chunk.length} 条，模型 ${data.response?.model ?? model}`);
       } catch (error) {
         failure = failure ?? error;
         return;

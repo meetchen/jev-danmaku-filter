@@ -149,9 +149,49 @@ npm run verify                                          # 当前默认后端
 npm run verify -- --provider bailian --workspace ws-xxx  # 换阿里量一遍
 ```
 
-想接第三家（火山方舟 / 智谱 / 自建 vLLM），只要它实现了同一个 `/systemone` 协议，
-在 `providers.js` 里加一条、把域名加进 `manifest.json` 的 `host_permissions` 即可。
-任意地址走 `optional_host_permissions`，由用户在面板里当场授权，不默认放宽。
+### 退路：用聊天模型顶上（不需要业务空间）
+
+决策模型在部分账号下不可用（实测某账号 `/v1/models` 返回 262 个模型，里面没有它；GLM 则提示未开通）。
+这时可以退到 **聊天模型**后端：自己拼 prompt 要 JSON，一个 `sk-` key 就能用，
+**不需要业务空间、不需要代理**。
+
+代价是聊天模型是「生成」而不是「决策」：
+
+| | TypeSafe（JEV score） | 阿里 qwen-flash（聊天） |
+| --- | --- | --- |
+| 原生概率分布 | 有 | **没有**，只有模型给的分数 |
+| 单次 160 条延迟 | ~1.6s | ~14.5s |
+| 全片 6672 条预热 | **~9s** | **~60~75s** |
+| 成本 | $0.08 | 更低 |
+| 需要业务空间 | 否 | 否 |
+| 国内直连 | 否 | **是** |
+
+**准确率基本持平**（29 条人工标注，同一套量表）：
+
+| 后端 | P | R | F1 |
+| --- | --- | --- | --- |
+| TypeSafe（JEV score），2 次 | 0.86 / 0.85 | 1.00 / 0.92 | 0.92 / 0.88 |
+| 阿里 qwen-flash，6 次 | 中位 0.88 | 中位 0.92 | **中位 0.90**（0.81~0.92，σ=0.04） |
+
+聊天模型的**方差明显更大** —— 同一个模型、同一份输入，F1 在 0.81~0.92 之间跳。
+好消息是误差偏向「多屏蔽」而不是「漏掉」：6 次平均 fp=1.8、fn=1.0。
+
+试过的其他模型：
+
+| 模型 | 结果 |
+| --- | --- |
+| `qwen-flash` | 约 87ms/条、无推理 token，**默认** |
+| `qwen3.5-flash` | F1 0.83，误判更多 |
+| `deepseek-v4-flash` | 召回只有 0.58，漏得厉害 |
+| `ZHIPU/GLM-5.3-Flash` | 账号未开通该产品，直接 400 |
+| `qwen3.8-flash` / `deepseek-v4.1-flash` | 输出 287~499 个推理 token，单条延迟 3~19 倍，分类任务上纯属浪费 |
+
+挑模型时注意选**不带推理**的 flash 系。
+
+想接第三家（火山方舟 / 智谱 / 自建 vLLM）：实现了同一个 `/systemone` 协议的，
+在 `providers.js` 里加一条、把域名加进 `manifest.json` 的 `host_permissions` 即可；
+纯聊天模型的加 `kind: 'chat'`。任意地址走 `optional_host_permissions`，
+由用户在面板里当场授权，不默认放宽。
 
 ## 安全与隐私
 
@@ -193,7 +233,7 @@ node src/cli/bili-filter.js "https://www.bilibili.com/bangumi/play/ep403700" --l
 ## 开发
 
 ```sh
-npm test              # 34 个测试，不发真实请求
+npm test              # 47 个测试，不发真实请求
 npm run build         # 构建扩展
 npm run icons         # 重新生成图标（--check 只校验像素，见下）
 npm run package       # 打包 zip，会校验 manifest 引用并拒绝 seed.json

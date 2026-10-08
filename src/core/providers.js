@@ -18,7 +18,9 @@
 export const PROVIDERS = {
   typesafe: {
     id: 'typesafe',
+    kind: 'systemone',                       // 原生 typed questions + 概率分布
     label: 'TypeSafe 官方',
+    envKey: 'TYPESAFE_API_KEY',
     hint: '官方 jev-latest。需自行准备可访问 api.typesafe.ai 的网络环境。',
     endpoint: 'https://api.typesafe.ai/v1/systemone',
     model: 'jev-latest',
@@ -29,7 +31,9 @@ export const PROVIDERS = {
   },
   bailian: {
     id: 'bailian',
+    kind: 'systemone',
     label: '阿里云百炼 · 决策模型',
+    envKey: 'DASHSCOPE_API_KEY',
     hint: '国内直连。需要业务空间 ID（百炼控制台可见），模型名 decision-model-preview。',
     endpoint: 'https://{workspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/systemone',
     endpointPath: '/compatible-mode/v1/systemone',
@@ -40,6 +44,23 @@ export const PROVIDERS = {
     needsWorkspace: true,
     docs: 'https://bailian.console.aliyun.com/',
     docsLabel: '去百炼控制台拿 API Key 和接口地址 ↗',
+  },
+  bailianChat: {
+    id: 'bailianChat',
+    // 聊天模型没有 typed questions，也没有原生概率分布，得自己拼 prompt 要 JSON。
+    // 好处是**不需要业务空间**，一个 sk- key 就能用。
+    kind: 'chat',
+    label: '阿里云百炼 · 聊天模型',
+    envKey: 'DASHSCOPE_API_KEY',
+    hint: '不需要业务空间，国内直连。用聊天模型模拟判定，精度与延迟需要实测。',
+    endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+    model: 'qwen-flash',
+    // 聊天模型是顺序生成，总时长由生成量决定，跟批量几乎无关（实测 80/160/320 条
+    // 都是约 87ms/条，且都不漏条）。所以批量取大些：请求数少、量表只带一次、单条更便宜。
+    // 全片 6672 条约 60~75 秒（并发 8），比 System One 后端的 ~9 秒慢一个量级。
+    maxQuestions: 160,
+    docs: 'https://bailian.console.aliyun.com/',
+    docsLabel: '去百炼控制台拿 API Key ↗',
   },
 };
 
@@ -71,10 +92,13 @@ export function resolveProvider(settings = {}) {
   const unresolved = endpoint.includes('{') || (preset.needsWorkspace && !raw);
   return {
     id: preset.id,
+    kind: preset.kind,
     label: preset.label,
     endpoint,
     model: String(settings.model ?? '').trim() || preset.model,
     maxQuestions: preset.maxQuestions,
+    // 每个后端读自己的环境变量名，否则 .env 里同时有两条 key 时必然抓错一条。
+    envKey: preset.envKey ?? 'TYPESAFE_API_KEY',
     configured: !unresolved,
     needsWorkspace: Boolean(preset.needsWorkspace),
   };
@@ -88,8 +112,9 @@ export function resolveProvider(settings = {}) {
 export function modelsEndpoint(endpoint) {
   try {
     const url = new URL(endpoint);
-    if (!/\/systemone\/?$/.test(url.pathname)) return null;
-    url.pathname = url.pathname.replace(/\/systemone\/?$/, '/models');
+    // 两家的判定端点分别是 .../v1/systemone 与 .../v1/chat/completions，模型列表都是 .../v1/models
+    if (!/\/(systemone|chat\/completions)\/?$/.test(url.pathname)) return null;
+    url.pathname = url.pathname.replace(/\/(systemone|chat\/completions)\/?$/, '/models');
     return url.toString();
   } catch { return null; }
 }

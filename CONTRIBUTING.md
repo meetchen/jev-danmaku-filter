@@ -3,7 +3,7 @@
 零依赖、纯 ESM。`git clone` 之后 `npm test` 就能跑，不需要 `npm install`。
 
 ```sh
-npm test          # 34 个测试，不发真实请求
+npm test          # 47 个测试，不发真实请求
 npm run build     # 构建扩展（改完 src/ 必须重建）
 npm run package   # 打包，会校验 manifest 引用完整
 ```
@@ -130,7 +130,9 @@ export const PROVIDERS = {
     hint: '面板里显示给用户的一句说明',
     endpoint: 'https://judge.example.com/v1/systemone',
     model: 'judge-v1',
-    maxQuestions: 64,        // 单次问题数上限，按厂商文档或实测来
+    kind: 'systemone',       // 或 'chat'（纯聊天模型，自己拼 prompt 要 JSON）
+  envKey: 'MY_API_KEY',    // .env 里对应的变量名，CLI 与 verify 靠它取 key
+  maxQuestions: 64,        // 单次问题数上限，按厂商文档或实测来
     docs: 'https://example.com/docs',
   },
 };

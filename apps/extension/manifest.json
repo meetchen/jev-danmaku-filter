@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "剧透弹幕过滤器 · JEV",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "用 JEV 判断并过滤剧透弹幕。初版支持哔哩哔哩。",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -9,7 +9,8 @@
   ],
   "host_permissions": [
     "https://api.typesafe.ai/*",
-    "https://*.maas.aliyuncs.com/*"
+    "https://*.maas.aliyuncs.com/*",
+    "https://dashscope.aliyuncs.com/*"
   ],
   "background": {
     "service_worker": "background.js",
