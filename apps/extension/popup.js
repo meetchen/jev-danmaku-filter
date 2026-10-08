@@ -27,7 +27,10 @@ function renderProviders() {
 function syncProviderFields() {
   const option = $('provider').selectedOptions[0];
   const needsWorkspace = option?.dataset.needsWorkspace === 'true';
-  $('provider-hint').textContent = option?.dataset.hint ?? '';
+  $('provider-hint').textContent = [
+    option?.dataset.hint ?? '',
+    needsWorkspace ? '地址填 ws-xxxx（业务空间 ID）或控制台给你的完整域名都可以，面板会自动补全。' : '',
+  ].filter(Boolean).join(' ');
   $('provider-docs').href = option?.dataset.docs || 'https://console.typesafe.ai/';
   $('workspace').hidden = !needsWorkspace;
   $('workspace-label').hidden = !needsWorkspace;

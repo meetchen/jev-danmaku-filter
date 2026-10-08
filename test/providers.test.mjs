@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PROVIDERS, resolveProvider, endpointOrigin } from '../src/core/providers.js';
+import { PROVIDERS, resolveProvider, endpointOrigin, normalizeEndpoint } from '../src/core/providers.js';
 import { SPOILER } from '../src/core/rules.js';
 import { buildRequest, parseAnswers } from '../src/core/jev.js';
 import { chunkEntries, classifyTexts } from '../src/core/batch.js';
@@ -23,6 +23,30 @@ test('provider 解析：预设、模板替换、缺配置时明确不可用', ()
   const custom = resolveProvider({ provider: 'typesafe', endpoint: 'https://my.gateway/systemone', model: 'my-model' });
   assert.equal(custom.endpoint, 'https://my.gateway/systemone');
   assert.equal(custom.model, 'my-model');
+});
+
+test('控制台给的三种形态都能填，不必自己去挖业务空间 ID', () => {
+  // 用户从控制台拿到的是「地址」，不是「一个叫 workspace 的字段」。
+  // 让他去地址里抠出 ID 是设计失误，这里三种形态都接受。
+  const expected = 'https://ws-abc.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/systemone';
+  for (const form of [
+    'ws-abc',                                                    // 只有 ID
+    'ws-abc.cn-beijing.maas.aliyuncs.com',                       // 主机名
+    expected,                                                    // 完整 URL
+    'https://ws-abc.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/systemone/',
+  ]) {
+    const resolved = resolveProvider({ provider: 'bailian', workspaceId: form });
+    assert.equal(resolved.endpoint.replace(/\/$/, ''), expected, `「${form}」应归一化成同一个地址`);
+    assert.equal(resolved.configured, true);
+  }
+  // 换地域也一样：主机名形态能自动补 /compatible-mode/v1/systemone
+  assert.equal(
+    resolveProvider({ provider: 'bailian', workspaceId: 'ws-abc.ap-southeast-1.maas.aliyuncs.com' }).endpoint,
+    'https://ws-abc.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/systemone',
+  );
+  // endpoint 与 workspaceId 任一填了都算配置好了
+  assert.equal(resolveProvider({ provider: 'bailian', endpoint: 'https://custom/x' }).configured, true);
+  assert.equal(normalizeEndpoint('', PROVIDERS.typesafe), PROVIDERS.typesafe.endpoint);
 });
 
 test('provider 的批量上限真的影响切分', () => {

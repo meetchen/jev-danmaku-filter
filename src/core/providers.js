@@ -31,6 +31,7 @@ export const PROVIDERS = {
     label: '阿里云百炼 · 决策模型',
     hint: '国内直连。需要业务空间 ID（百炼控制台可见），模型名 decision-model-preview。',
     endpoint: 'https://{workspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/systemone',
+    endpointPath: '/compatible-mode/v1/systemone',
     model: 'decision-model-preview',
     // 官方文档：问题数不设上限，但「建议 ≤ 16，延迟随问题数近线性增长」。
     // 这里取 32 折中 —— 问题数越多单次越慢，但请求数越少，实测后再调。
@@ -42,14 +43,30 @@ export const PROVIDERS = {
 
 export const DEFAULT_PROVIDER = 'typesafe';
 
+/**
+ * 把用户填的东西归一化成完整 endpoint。控制台给用户的可能是三种形态中的任意一种，
+ * 不该让他自己去挖出「业务空间 ID」这四个字：
+ *   ws-1j23p7rfkx9a1ocj                                             → 补全成北京地域
+ *   ws-1j23p7rfkx9a1ocj.cn-beijing.maas.aliyuncs.com                → 补全 scheme 与路径
+ *   https://ws-….cn-beijing.maas.aliyuncs.com/compatible-mode/v1/systemone → 原样用
+ */
+export function normalizeEndpoint(input, preset) {
+  const value = String(input ?? '').trim();
+  if (!value) return preset.endpoint;
+  if (/^https?:\/\//i.test(value)) return value;                    // 完整 URL，直接用
+  if (value.includes('/')) return `https://${value}`;                // host + 路径，只补 scheme
+  if (value.includes('.')) return `https://${value}${preset.endpointPath ?? ''}`;  // 主机名，补路径
+  return preset.endpoint.replace('{workspaceId}', value);            // 只有 workspace id
+}
+
 /** 把设置解析成实际要用的 {endpoint, model, maxQuestions}。设置里的值优先于预设。 */
 export function resolveProvider(settings = {}) {
   const preset = PROVIDERS[settings.provider] ?? PROVIDERS[DEFAULT_PROVIDER];
-  const workspaceId = String(settings.workspaceId ?? '').trim();
-  let endpoint = String(settings.endpoint ?? '').trim() || preset.endpoint;
-  endpoint = endpoint.replace('{workspaceId}', workspaceId);
+  // workspaceId 与 endpoint 谁填了都行，endpoint 更宽（能接受主机名和完整 URL）。
+  const raw = String(settings.endpoint ?? '').trim() || String(settings.workspaceId ?? '').trim();
+  const endpoint = normalizeEndpoint(raw, preset);
 
-  const unresolved = endpoint.includes('{') || (preset.needsWorkspace && !workspaceId && !settings.endpoint?.trim());
+  const unresolved = endpoint.includes('{') || (preset.needsWorkspace && !raw);
   return {
     id: preset.id,
     label: preset.label,
