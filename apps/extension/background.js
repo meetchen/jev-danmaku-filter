@@ -4,8 +4,9 @@
 import { SPOILER, RULE_VERSION } from './vendor/core/rules.js';
 import { classifyTexts } from './vendor/core/batch.js';
 import { MapCache } from './vendor/core/memory.js';
+import { PROVIDERS, DEFAULT_PROVIDER, resolveProvider } from './vendor/core/providers.js';
 
-const DEFAULTS = { enabled: true, model: 'jev-latest' };
+const DEFAULTS = { enabled: true, provider: DEFAULT_PROVIDER, workspaceId: '', endpoint: '', model: '' };
 const MAX_TEXTS_PER_CALL = 20_000;
 // 这是花用户自己额度的插件，装完之后没人盯着。加一道每日上限，
 // 防止恶意页面伪造消息或超长视频把额度悄悄烧光。约合每天 $2~3。
@@ -22,6 +23,8 @@ const today = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 };
+
+const provider = () => resolveProvider(settings);
 
 const ready = (async () => {
   // API Key 只保存在本机扩展存储里。限制为仅可信上下文可读，content script 也读不到。
@@ -56,9 +59,17 @@ const state = () => ({
   ok: true,
   enabled: settings.enabled,
   configured: Boolean(apiKey),
-  model: settings.model,
+  provider: settings.provider,
+  providerLabel: provider().label,
+  providers: Object.values(PROVIDERS).map(({ id, label, hint, model, docs, needsWorkspace }) => ({ id, label, hint, model, docs, needsWorkspace })),
+  endpoint: provider().endpoint,
+  model: provider().model,
+  providerReady: provider().configured,
+  workspaceId: settings.workspaceId,
+  endpointOverride: settings.endpoint,
+  modelOverride: settings.model,
   ruleVersion: RULE_VERSION,
-  active: settings.enabled && Boolean(apiKey),
+  active: settings.enabled && Boolean(apiKey) && provider().configured,
   error: lastError,
   cached: cache.map.size,
   usedToday: usage.day === today() ? usage.texts : 0,
@@ -77,10 +88,13 @@ async function classify(message, sender) {
   }
   const allowed = texts.slice(0, budget);
 
+  const active = provider();
   const { results, stats } = await classifyTexts(allowed, {
     apiKey,
     rule: SPOILER,
-    model: settings.model,
+    model: active.model,
+    endpoint: active.endpoint,
+    maxQuestions: active.maxQuestions,
     cache,
     context: {
       title: String(message.context?.title ?? '').slice(0, 240),
@@ -119,6 +133,13 @@ async function handle(message, sender) {
       return await classify(message, sender);
     case 'SAVE': {
       if (typeof message.enabled === 'boolean') settings.enabled = message.enabled;
+      if (message.provider !== undefined) {
+        if (!PROVIDERS[message.provider]) throw new Error(`未知的判定后端：${message.provider}`);
+        settings.provider = message.provider;
+      }
+      for (const key of ['workspaceId', 'endpoint', 'model']) {
+        if (message[key] !== undefined) settings[key] = String(message[key]).trim();
+      }
       if (message.apiKey !== undefined) {
         const key = String(message.apiKey).trim();
         if (key && !/^[\x21-\x7e]{8,512}$/.test(key)) throw new Error('API Key 格式不对，请粘贴完整的一串。');

@@ -15,7 +15,13 @@ const sleep = (ms, signal) => new Promise((resolve, reject) => {
 });
 
 // 按 JEV 的双重上下文预算切分：state + 全部 questions ≤ 60K，state + 单问 ≤ 28K。
-export function chunkEntries(entries, { rule = SPOILER, model = DEFAULT_MODEL, context = {}, maxContext = MAX_CONTEXT_TOKENS, maxSingle = MAX_SINGLE_TOKENS } = {}) {
+export function chunkEntries(entries, {
+  rule = SPOILER, model = DEFAULT_MODEL, context = {},
+  maxContext = MAX_CONTEXT_TOKENS, maxSingle = MAX_SINGLE_TOKENS,
+  // 不同厂商对「一次问多少个问题」的建议不同：TypeSafe 说加问题几乎不增加延迟，
+  // 阿里百炼的文档说延迟随问题数近线性增长、建议 ≤16。所以批量上限要能按厂商调。
+  maxQuestions = Infinity,
+} = {}) {
   const perQuestion = questionTokenCost(rule);
   const base = estimateTokens(buildRequest([], { rule, model, ...context }).state);
   const chunks = [];
@@ -26,7 +32,8 @@ export function chunkEntries(entries, { rule = SPOILER, model = DEFAULT_MODEL, c
   for (const entry of entries) {
     const entryTokens = estimateTokens(entry) + 6;
     const overflow = stateTokens + entryTokens > maxSingle
-      || stateTokens + entryTokens + questionTokens + perQuestion > maxContext;
+      || stateTokens + entryTokens + questionTokens + perQuestion > maxContext
+      || current.length >= maxQuestions;
     if (current.length && overflow) {
       chunks.push(current);
       current = [];
@@ -66,6 +73,7 @@ export async function classifyTexts(texts, options = {}) {
     model = DEFAULT_MODEL,
     cache = new NullCache(),
     context = {},
+    maxQuestions = Infinity,
     concurrency = 2,
     maxRetries = 3,
     onProgress,
@@ -104,7 +112,7 @@ export async function classifyTexts(texts, options = {}) {
   if (!apiKey) throw new Error('缺少 API Key：请设置 TYPESAFE_API_KEY，或传入 --key。');
 
   const entries = pending.map(text => ({ text, at: atByText.get(text) ?? null }));
-  const chunks = chunkEntries(entries, { rule, model, context });
+  const chunks = chunkEntries(entries, { rule, model, context, maxQuestions });
   stats.batches = chunks.length;
 
   let cursor = 0;

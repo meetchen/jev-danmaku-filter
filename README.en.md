@@ -88,10 +88,32 @@ verdict.
 Measured on a ~6700-danmaku episode: **$0.08** and **~9 seconds** of warm-up at concurrency 8
 (~350 tokens per entry, ~40 batches). A single request with 156–350 entries takes 1.5–2.3 s.
 
+## Judging backends
+
+The judgment runs over the **TypeSafe System One protocol**, which has become a de facto standard:
+Alibaba Cloud's [decision model](https://help.aliyun.com/zh/model-studio/decision-model-api) is a
+compatible implementation. Switching vendors needs no changes to the core logic.
+
+| | TypeSafe | Alibaba Cloud Bailian |
+| --- | --- | --- |
+| Endpoint | `/v1/systemone` | `/compatible-mode/v1/systemone` |
+| Model | `jev-latest` | `decision-model-preview` |
+| Request body | `{model, state, questions}` | **identical** |
+| Response | `{choice\|noul\|score, probabilities, confidence}` | **identical** |
+| Network from mainland China | needs a proxy | direct |
+
+`src/core/providers.js` is the single place to configure this. The two vendors differ on how many
+questions to put in one request, which affects batch size and latency: TypeSafe says adding questions
+barely changes response time (cap 500, bounded only by the 64K token limit), while Alibaba's docs say
+latency grows roughly linearly with question count and recommend ≤16 (we cap at 32).
+
+Measure any change with `npm run verify -- --provider bailian --workspace ws-xxx`.
+
 ## Security and privacy
 
-**What leaves your machine:** the danmaku text being judged, plus the video title and description.
-No cookies, no account id, no username, no DMs, no page HTML.
+**What leaves your machine:** the danmaku text being judged, plus the video title and description,
+sent to **whichever judging backend you pick**. No cookies, no account id, no username, no DMs, no
+page HTML.
 
 **API key:** stored in `chrome.storage.local` with
 `setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })`, so even content scripts cannot read it.
@@ -118,7 +140,7 @@ node src/cli/bili-filter.js BV1AzYs6bEeX --out out/result.json
 ## Development
 
 ```sh
-npm test          # 27 tests, no real API calls
+npm test          # 34 tests, no real API calls
 npm run build     # build the extension
 npm run package   # zip; validates the manifest and refuses to ship seed.json
 npm run verify    # measure P/R/F1 of the current config on 29 hand-labelled danmaku
@@ -171,6 +193,9 @@ path that judges segments as the player requests them.
 - Bangumi support is implemented but not broadly regression-tested.
 - Danmaku only. Comments are not filtered yet.
 - Advanced and code danmaku are out of scope.
+- **Accuracy on the Alibaba backend is not measured yet.** Protocol compatibility is covered by tests
+  (using their own documented response sample), but decision quality and the optimal batch cap need
+  real numbers: `npm run verify -- --provider bailian`.
 
 ## License
 

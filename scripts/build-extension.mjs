@@ -9,7 +9,7 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const EXT = join(ROOT, 'apps/extension');
 
 // background.js 是 ES module，可以直接 import；需要复制的就是它依赖的那些纯逻辑模块。
-const CORE = ['rules.js', 'tokens.js', 'hash.js', 'memory.js', 'jev.js', 'batch.js'];
+const CORE = ['rules.js', 'tokens.js', 'hash.js', 'memory.js', 'jev.js', 'batch.js', 'providers.js'];
 
 await rm(join(EXT, 'vendor'), { recursive: true, force: true });
 await mkdir(join(EXT, 'vendor/core'), { recursive: true });

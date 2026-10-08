@@ -19,3 +19,14 @@ input[type=password] { flex: 1; min-width: 0; padding: 6px 8px; border: 1px soli
 button { padding: 6px 10px; border: 0; border-radius: 6px; background: #34a06a; color: #fff; font-size: 12px; cursor: pointer; }
 button:disabled { opacity: .6; cursor: default; }
 a { font-size: 11px; color: #6b7280; }
+
+#connection label { display: block; margin: 10px 0 4px; font-size: 12px; color: #4b5563; }
+#connection select, #connection input[type=text], #connection input:not([type]) {
+  width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #d1d5db;
+  border-radius: 6px; font-size: 12px;
+}
+.hint { margin: 4px 0 0; font-size: 11px; line-height: 1.5; color: #6b7280; }
+.advanced { margin: 10px 0 0; border: 0; padding: 0; }
+.advanced summary { font-size: 11px; color: #6b7280; }
+.advanced input { margin-top: 6px; }
+.privacy { margin: 12px 0 0; font-size: 11px; line-height: 1.5; color: #9ca3af; }

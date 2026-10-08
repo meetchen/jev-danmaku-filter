@@ -8,14 +8,31 @@
   </header>
   <p class="intro">打开开关，B 站弹幕里透露后续剧情的会被过滤掉。</p>
   <p id="status" role="status" aria-live="polite">正在读取…</p>
+
   <details id="connection">
-    <summary>连接 JEV（TypeSafe API Key）</summary>
+    <summary id="connection-label">配置判定后端</summary>
     <form id="connect-form">
+      <label for="provider">判定后端</label>
+      <select id="provider"></select>
+      <p id="provider-hint" class="hint"></p>
+
+      <label for="workspace" id="workspace-label" hidden>业务空间 ID</label>
+      <input id="workspace" autocomplete="off" placeholder="百炼控制台可见" hidden>
+
+      <label for="api-key">API Key</label>
       <input id="api-key" type="password" autocomplete="off" placeholder="粘贴 API Key">
-      <button type="submit">保存并测试</button>
+
+      <details class="advanced">
+        <summary>自定义地址 / 模型（可选）</summary>
+        <input id="endpoint" autocomplete="off" placeholder="https://.../v1/systemone">
+        <input id="model" autocomplete="off" placeholder="模型名">
+      </details>
+
+      <button type="submit" id="connect">保存并测试</button>
     </form>
-    <a href="https://console.typesafe.ai/" target="_blank" rel="noreferrer">去拿 API Key ↗</a>
+    <a id="provider-docs" href="https://console.typesafe.ai/" target="_blank" rel="noreferrer">去哪拿 API Key ↗</a>
   </details>
+  <p class="privacy">弹幕文本与视频标题会发送给你选择的判定服务，消耗你自己的额度。Key 只存在本机。</p>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

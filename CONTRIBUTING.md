@@ -3,7 +3,7 @@
 零依赖、纯 ESM。`git clone` 之后 `npm test` 就能跑，不需要 `npm install`。
 
 ```sh
-npm test          # 27 个测试，不发真实请求
+npm test          # 34 个测试，不发真实请求
 npm run build     # 构建扩展（改完 src/ 必须重建）
 npm run package   # 打包，会校验 manifest 引用完整
 ```
@@ -113,6 +113,39 @@ export const SITES = [bilibili, mysite];
 **另一条更省事的路：通用文件适配器。**吃本地 XML / JSON / ASS 弹幕文件，输出带剧透标记的结果，
 不碰任何站点接口，用户自己把标记好的弹幕导进播放器。完全绕开逆向，而且直接复用
 `filterBytes()` 那套逻辑。这个方向不需要浏览器验证，是很好的起步点。
+
+## 怎么接第三家判定后端
+
+判定走的是 **TypeSafe System One 协议**，阿里云百炼是它的兼容实现。所以想接第三家
+（火山方舟 / 智谱 / 自建 vLLM / 任何实现了同协议的服务），改动集中在一个文件：
+
+```js
+// src/core/providers.js
+export const PROVIDERS = {
+  typesafe: { /* ... */ },
+  bailian: { /* ... */ },
+  myservice: {
+    id: 'myservice',
+    label: '我的判定服务',
+    hint: '面板里显示给用户的一句说明',
+    endpoint: 'https://judge.example.com/v1/systemone',
+    model: 'judge-v1',
+    maxQuestions: 64,        // 单次问题数上限，按厂商文档或实测来
+    docs: 'https://example.com/docs',
+  },
+};
+```
+
+然后**必须**同步两处，否则运行时才炸：
+
+1. `apps/extension/manifest.json` 的 `host_permissions` 加上该域名
+   （`test/versions.test.mjs` 里对固定 host 列表有断言，会提醒你）
+2. 如果该厂商的返回字段和 System One 有差异，改 `src/core/jev.js` 的 `parseAnswers()`
+
+**先确认它真的实现了同协议**：拿 `npm run verify --provider myservice` 打一遍，
+29 条标注样本上的 P/R/F1 和 TypeSafe 比一比。核心逻辑（`buildRequest` / 批次切分 /
+缓存 / 重试）应当一行都不用改 —— 如果要改，说明这个厂商并不是同协议，而是需要另写适配层，
+那就该在 `src/core/` 下单开一个 backend，而不是硬塞进 providers。
 
 ## 提交前检查
 

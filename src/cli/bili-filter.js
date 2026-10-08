@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fetchDanmaku } from '../adapters/bilibili/index.js';
 import { SPOILER } from '../core/rules.js';
-import { DEFAULT_MODEL, buildRequest } from '../core/jev.js';
+import { buildRequest } from '../core/jev.js';
+import { PROVIDERS, resolveProvider } from '../core/providers.js';
 import { chunkEntries, classifyTexts } from '../core/batch.js';
 import { JsonCache } from '../core/cache.js';
 import { estimateTokens } from '../core/tokens.js';
@@ -41,8 +42,11 @@ const USAGE = `
   --limit <n>       只判断前 n 条弹幕（按播放时间）
   --batch <n>       每批条数上限（默认按 token 预算自动切分）
   --concurrency <n> 并发批次数（默认 6）
-  --model <id>      JEV 模型（默认 ${DEFAULT_MODEL}）
-  --key <key>       TypeSafe API Key（默认读 TYPESAFE_API_KEY）
+  --provider <id>   判定后端（${Object.keys(PROVIDERS).join(' / ')}，默认 typesafe）
+  --workspace <id>  阿里云百炼的业务空间 ID（provider=bailian 时必填）
+  --endpoint <url>  自定义判定接口地址
+  --model <id>      模型名（默认取 provider 预设）
+  --key <key>       判定服务的 API Key（默认读 .env 里的 TYPESAFE_API_KEY / DASHSCOPE_API_KEY）
   --cache <file>    缓存文件（默认 .cache/bili-danmaku.json）
   --no-cache        不使用缓存
   --out <file>      输出带判断结果的 JSON
@@ -62,9 +66,17 @@ async function main() {
 
   const apiKey = options.key && options.key !== true ? options.key : process.env.TYPESAFE_API_KEY;
   const limit = options.limit ? Number(options.limit) : Infinity;
-  const model = options.model && options.model !== true ? String(options.model) : DEFAULT_MODEL;
+  const provider = resolveProvider({
+    provider: options.provider && options.provider !== true ? String(options.provider) : undefined,
+    workspaceId: options.workspace && options.workspace !== true ? String(options.workspace) : undefined,
+    endpoint: options.endpoint && options.endpoint !== true ? String(options.endpoint) : undefined,
+    model: options.model && options.model !== true ? String(options.model) : undefined,
+  });
+  if (!provider.configured) throw new Error(`provider=${provider.id} 还缺配置（大概率是 --workspace）。`);
+  const model = provider.model;
   const verbose = Boolean(options.verbose);
 
+  process.stdout.write(`▸ 判定后端：${provider.label} · ${provider.endpoint} · ${model}\n`);
   process.stdout.write(`▸ 解析视频 ${input}\n`);
   const { video, items, source } = await fetchDanmaku(input, { limit: Number.isFinite(limit) ? limit : undefined, verbose });
   process.stdout.write(`  标题：${video.title}\n`);
@@ -80,7 +92,7 @@ async function main() {
 
   if (options.dryRun) {
     const entries = [...unique].map(text => ({ text, at: atByText.get(text) ?? null }));
-    const chunks = chunkEntries(entries, { rule: SPOILER, model, context });
+    const chunks = chunkEntries(entries, { rule: SPOILER, model, context, maxQuestions: provider.maxQuestions });
     const first = buildRequest(chunks[0] ?? [], { rule: SPOILER, model, ...context });
     const stateTokens = estimateTokens(first.state);
     const totalTokens = chunks.reduce((sum, chunk) => sum + estimateTokens(buildRequest(chunk, { rule: SPOILER, model, ...context })), 0);
@@ -105,7 +117,9 @@ async function main() {
     cache,
     context,
     atByText,
+    maxQuestions: provider.maxQuestions,
     concurrency: options.concurrency ? Number(options.concurrency) : 6,
+    endpoint: provider.endpoint,
     log: verbose ? (m => process.stderr.write(`  ${m}\n`)) : null,
     onProgress: ({ done, total }) => {
       if (done < total) process.stderr.write(`\r  批次 ${done}/${total} 完成   `);

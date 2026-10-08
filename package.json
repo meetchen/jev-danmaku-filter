@@ -1,6 +1,6 @@
 {
   "name": "jev-danmaku-filter",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "用 JEV（TypeSafe System One）判断并过滤剧透弹幕。初版支持哔哩哔哩，架构按多站点适配设计。",

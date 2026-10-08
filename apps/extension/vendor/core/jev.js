@@ -105,7 +105,15 @@ export async function ask({ apiKey, body, signal, fetchImpl = fetch, endpoint = 
     });
   } catch (error) {
     if (error?.name === 'AbortError') throw error;
-    throw new JevError(`无法连接 JEV：${error.message}`, { retryable: true });
+    // fetch 抛 TypeError 时 error.message 只有一句 "Failed to fetch"，看不出是 DNS、代理还是重定向。
+    // 这里补上主机名和最常见的原因，省得每次都从零排查。
+    let host = endpoint;
+    try { host = new URL(endpoint).host; } catch { /* 保持原样 */ }
+    throw new JevError(
+      `连不上 ${host}（${error.message}）。常见原因：代理 / VPN 没把该域名放行，`
+      + '或 Chrome 的「安全 DNS」绕过了本地 DNS 导致解析到走不通的地址。',
+      { retryable: true },
+    );
   }
   if (!response.ok) {
     const retryAfter = Number(response.headers?.get?.('retry-after')) || 0;

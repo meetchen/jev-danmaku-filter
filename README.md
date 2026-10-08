@@ -29,9 +29,15 @@ Chrome 打开 `chrome://extensions/` → 打开右上角「开发者模式」→
 
 > 也可以直接下载 [Releases](https://github.com/meetchen/jev-danmaku-filter/releases) 里的 zip 解压后加载。
 
-**2. 填一次自己的 API Key**
+**2. 选后端 + 填自己的 API Key**
 
-点开插件面板 → 「连接 JEV」→ 粘贴 [TypeSafe 官方 API Key](https://console.typesafe.ai/) → 「保存并测试」。
+点开插件面板 → 「配置判定后端」→ 选一家：
+
+| 后端 | 需要什么 | 网络 |
+| --- | --- | --- |
+| **TypeSafe 官方** | [API Key](https://console.typesafe.ai/) | 需要能访问 `api.typesafe.ai` |
+| **阿里云百炼 · 决策模型** | [API Key](https://bailian.console.aliyun.com/) + 业务空间 ID | **国内直连** |
+
 Key 只存在本机扩展存储里，不上传、不进安装包。
 
 **3. 打开 B 站视频页**
@@ -114,9 +120,43 @@ JEV 返回的是每级的概率分布，`score` 是它的加权均值：
 
 ---
 
+## 判定后端（厂商）
+
+判定走的是 **TypeSafe System One 协议**。这个协议已经成了事实标准 —— 阿里云百炼的
+[「决策模型」](https://help.aliyun.com/zh/model-studio/decision-model-api) 是**兼容实现**，
+所以换厂商不用改核心逻辑：
+
+| | TypeSafe 官方 | 阿里云百炼 |
+| --- | --- | --- |
+| 端点 | `/v1/systemone` | `/compatible-mode/v1/systemone` |
+| 模型 | `jev-latest` | `decision-model-preview` |
+| 请求体 | `{model, state, questions}` | **完全相同** |
+| 返回 | `{choice\|noul\|score, probabilities, confidence}` | **完全相同** |
+| 计费 | 只算 input token | 一样 |
+| 网络 | 需可访问 `api.typesafe.ai` | **国内直连** |
+
+`src/core/providers.js` 是唯一配置点。两家对「一次问多少个问题」的建议不同，会直接影响批量与延迟：
+
+| | 单次问题上限 | 依据 |
+| --- | --- | --- |
+| TypeSafe | 500 | 官方称「加问题几乎不改变响应时间」，只受 64K token 约束 |
+| 阿里百炼 | 32 | 官方文档称「延迟随问题数近线性增长，建议 ≤16」 |
+
+上限就在 provider 定义里。**改完用 `npm run verify` 看 F1 有没有变化**：
+
+```sh
+npm run verify                                          # 当前默认后端
+npm run verify -- --provider bailian --workspace ws-xxx  # 换阿里量一遍
+```
+
+想接第三家（火山方舟 / 智谱 / 自建 vLLM），只要它实现了同一个 `/systemone` 协议，
+在 `providers.js` 里加一条、把域名加进 `manifest.json` 的 `host_permissions` 即可。
+任意地址走 `optional_host_permissions`，由用户在面板里当场授权，不默认放宽。
+
 ## 安全与隐私
 
-**发送了什么**：待判断的弹幕文本、视频标题与简介。**没有** Cookie、账号 ID、用户名、私信、整页 HTML。
+**发送了什么**：待判断的弹幕文本、视频标题与简介，发往**你自己选的那个判定后端**。
+**没有** Cookie、账号 ID、用户名、私信、整页 HTML。
 
 **API Key**：只存在 `chrome.storage.local`，并调用了
 `setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })` 限制为仅可信上下文可读，
@@ -153,7 +193,7 @@ node src/cli/bili-filter.js "https://www.bilibili.com/bangumi/play/ep403700" --l
 ## 开发
 
 ```sh
-npm test              # 27 个测试，不发真实请求
+npm test              # 34 个测试，不发真实请求
 npm run build         # 构建扩展
 npm run icons         # 重新生成图标（--check 只校验像素，见下）
 npm run package       # 打包 zip，会校验 manifest 引用并拒绝 seed.json
@@ -167,7 +207,7 @@ npm run verify        # 在 29 条人工标注样本上量当前配置的 P/R/F1
 改完源码要**重新 build**，CI 会检查提交的生成文件与源码是否一致。
 
 ```
-src/core/                 平台无关：规则 / JEV 客户端 / 批量调度 / 缓存
+src/core/                 平台无关：规则 / 判定客户端 / 厂商配置 / 批量调度 / 缓存
 src/sites/                站点注册表与描述符（加新站点只动这里）
 src/adapters/bilibili/    站点原语：protobuf 编解码、URL 构造、弹幕采集
 src/cli/                  命令行
@@ -262,6 +302,8 @@ grep -E "bilibili|SEGMENT|bili-danmaku" apps/extension/page.js
 - **番剧路径**已适配但未做大面积回归。
 - **只做弹幕**，评论区没做。
 - 特殊弹幕（高级弹幕、代码弹幕）不在处理范围。
+- **阿里后端的准确率还没测过。** 协议兼容是确定的（用他们文档里的返回样例做了单测），
+  但判决质量、批量上限的最优值都要实测。跑 `npm run verify -- --provider bailian` 就能出数。
 
 ---
 

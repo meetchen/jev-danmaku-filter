@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { classifyTexts } from '../src/core/batch.js';
 import { SPOILER } from '../src/core/rules.js';
 import { NullCache } from '../src/core/memory.js';
+import { resolveProvider } from '../src/core/providers.js';
 
 export const LABELED = [
   ['下周没葛西啥事了，他已经出局了',1],['然后两个人被巨川暴打',1],['最后一定是大河内帮了财前',1],
@@ -20,7 +21,22 @@ export const LABELED = [
   ['长得好像啊是我的错觉吗',0],['东教授已经输了',0],['其实教授回心转意了，想谈谈，但已经没有谈的可能了',0],
 ];
 
-const apiKey = readFileSync(new URL('../.env', import.meta.url), 'utf8').match(/TYPESAFE_API_KEY=(.*)/)[1].trim();
+const arg = name => {
+  const i = process.argv.indexOf(`--${name}`);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+};
+const provider = resolveProvider({
+  provider: arg('provider'), workspaceId: arg('workspace'), endpoint: arg('endpoint'), model: arg('model'),
+});
+if (!provider.configured) {
+  console.error(`provider=${provider.id} 还缺配置（多半是 --workspace）。`);
+  process.exit(1);
+}
+// 各家的 key 环境变量名不同：TypeSafe 用 TYPESAFE_API_KEY，百炼用 DASHSCOPE_API_KEY。
+const envText = readFileSync(new URL('../.env', import.meta.url), 'utf8');
+const apiKey = (arg('key') || envText.match(/(?:TYPESAFE_API_KEY|DASHSCOPE_API_KEY)=(.*)/)?.[1] || '').trim();
+if (!apiKey) { console.error('没找到 API Key（.env 里的 TYPESAFE_API_KEY 或 DASHSCOPE_API_KEY）。'); process.exit(1); }
+console.error(`判定后端：${provider.label} · ${provider.endpoint} · ${provider.model}\n`);
 
 // 三种问法，用同一套规则语义，端到端跑同一条管线
 const VARIANTS = {
@@ -40,8 +56,9 @@ console.log('每条文本的严重度（0~1），❌ = 判错\n');
 const summary = [];
 for (const [name, rule] of Object.entries(VARIANTS)) {
   const { results } = await classifyTexts(LABELED.map(([text]) => text), {
-    apiKey, rule, cache: new NullCache(),
-    context: { title: '白色巨塔 · 第9集', description: '' }, concurrency: 1,
+    apiKey, rule, cache: new NullCache(), endpoint: provider.endpoint, model: provider.model,
+    maxQuestions: provider.maxQuestions,
+    context: { title: '白色巨塔 · 第9集', description: '' }, concurrency: 4,
   });
   let tp = 0, fp = 0, fn = 0, tn = 0;
   const misses = [];
