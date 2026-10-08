@@ -75,8 +75,8 @@ $('connect-form').onsubmit = async event => {
     const draft = {
       provider: $('provider').value,
       workspaceId: $('workspace').value.trim(),
-      endpoint: $('endpoint').value.trim(),
-      model: $('model').value.trim(),
+      endpointOverride: $('endpoint').value.trim(),
+      modelOverride: $('model').value.trim(),
     };
     // 自定义地址不在 manifest 的固定 host_permissions 里，得当场申请运行时权限。
     const resolved = resolveProvider(draft);

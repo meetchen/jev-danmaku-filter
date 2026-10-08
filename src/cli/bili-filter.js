@@ -68,8 +68,8 @@ async function main() {
   const provider = resolveProvider({
     provider: options.provider && options.provider !== true ? String(options.provider) : undefined,
     workspaceId: options.workspace && options.workspace !== true ? String(options.workspace) : undefined,
-    endpoint: options.endpoint && options.endpoint !== true ? String(options.endpoint) : undefined,
-    model: options.model && options.model !== true ? String(options.model) : undefined,
+    endpointOverride: options.endpoint && options.endpoint !== true ? String(options.endpoint) : undefined,
+    modelOverride: options.model && options.model !== true ? String(options.model) : undefined,
   });
   if (!provider.configured) throw new Error(`provider=${provider.id} 还缺配置（大概率是 --workspace）。`);
   const apiKey = (options.key && options.key !== true ? options.key : process.env[provider.envKey]) || '';

@@ -6,7 +6,8 @@ import { classifyTexts } from './vendor/core/batch.js';
 import { MapCache } from './vendor/core/memory.js';
 import { PROVIDERS, DEFAULT_PROVIDER, resolveProvider, modelsEndpoint } from './vendor/core/providers.js';
 
-const DEFAULTS = { enabled: true, provider: DEFAULT_PROVIDER, workspaceId: '', endpoint: '', model: '' };
+// endpoint / model 的覆盖字段带 Override 后缀，避免与早期版本存下的同名字段碰撞。
+const DEFAULTS = { enabled: true, provider: DEFAULT_PROVIDER, workspaceId: '', endpointOverride: '', modelOverride: '' };
 const MAX_TEXTS_PER_CALL = 20_000;
 // 这是花用户自己额度的插件，装完之后没人盯着。加一道每日上限，
 // 防止恶意页面伪造消息或超长视频把额度悄悄烧光。约合每天 $2~3。
@@ -48,7 +49,16 @@ const ready = (async () => {
   try { await chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }); } catch { /* 老版本 Chrome 忽略 */ }
 
   const stored = await chrome.storage.local.get(['settings', 'apiKey', 'cache', 'usage']);
-  if (stored.settings) Object.assign(settings, stored.settings);
+  if (stored.settings) {
+    Object.assign(settings, stored.settings);
+    // 早期版本的默认设置里有 model: 'jev-latest'，现在这个键已经不用了。
+    // 留着会让人在排查时误以为它是生效的配置，直接清掉。
+    if ('model' in settings || 'endpoint' in settings) {
+      delete settings.model;
+      delete settings.endpoint;
+      await chrome.storage.local.set({ settings: { ...settings } });
+    }
+  }
   if (typeof stored.apiKey === 'string') apiKey = stored.apiKey;
   cache.hydrate(stored.cache);
   if (stored.usage?.day === today()) usage = stored.usage;
@@ -83,8 +93,8 @@ const state = () => ({
   model: provider().model,
   providerReady: provider().configured,
   workspaceId: settings.workspaceId,
-  endpointOverride: settings.endpoint,
-  modelOverride: settings.model,
+  endpointOverride: settings.endpointOverride,
+  modelOverride: settings.modelOverride,
   ruleVersion: RULE_VERSION,
   active: settings.enabled && Boolean(apiKey) && provider().configured,
   error: lastError,
@@ -152,7 +162,7 @@ async function handle(message, sender) {
         if (!PROVIDERS[message.provider]) throw new Error(`未知的判定后端：${message.provider}`);
         settings.provider = message.provider;
       }
-      for (const key of ['workspaceId', 'endpoint', 'model']) {
+      for (const key of ['workspaceId', 'endpointOverride', 'modelOverride']) {
         if (message[key] !== undefined) settings[key] = String(message[key]).trim();
       }
       if (message.apiKey !== undefined) {
@@ -171,10 +181,13 @@ async function handle(message, sender) {
       try {
         await classify({ texts: ['这是一条连接测试，不是真实弹幕。'], context: { title: '连接测试' } }, null);
       } catch (error) {
+        // 模型名不对是最难自查的一类错：名字看着没错、key 也对、workspace 也对。
+        // 所以失败时把「实际发出的模型名」带上，并顺手查一下可参考的模型列表。
         const models = await availableModels(active);
-        if (!models) throw error;
+        if (!models) throw new Error(`实际发出的模型名是「${active.model}」。${error.message}`);
         // 报错里带上可用模型，省得用户对着一个"看着没错"的模型名反复试
-        throw new Error(`${error.message} —— 这个 Key 在 ${new URL(active.endpoint).host} 下可用的模型：${models.slice(0, 20).join('、')}`);
+        throw new Error(`实际发出的模型名是「${active.model}」。${error.message}`
+          + ` —— ${new URL(active.endpoint).host} 报出的模型列表（仅供参考，不代表全部可用的）：${models.slice(0, 12).join('、')}…`);
       }
       return state();
     }

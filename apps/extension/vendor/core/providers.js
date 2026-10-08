@@ -86,11 +86,18 @@ export function normalizeEndpoint(input, preset) {
   return preset.endpoint.replace('{workspaceId}', value);            // 只有 workspace id
 }
 
-/** 把设置解析成实际要用的 {endpoint, model, maxQuestions}。设置里的值优先于预设。 */
+/**
+ * 把设置解析成实际要用的 {endpoint, model, maxQuestions}。用户填的值优先于预设。
+ *
+ * 覆盖字段故意叫 endpointOverride / modelOverride，**不叫 endpoint / model**：
+ * 早期版本把 model 存进过 settings（当时的默认值是 'jev-latest'），如果这里读 settings.model，
+ * 老用户升级后那个陈旧值会覆盖掉新后端的模型名，表现为「Model not exist」——
+ * 排查起来极难，因为 key 对、workspace 对、端点也对。改名让旧键自然失效。
+ */
 export function resolveProvider(settings = {}) {
   const preset = PROVIDERS[settings.provider] ?? PROVIDERS[DEFAULT_PROVIDER];
-  // workspaceId 与 endpoint 谁填了都行，endpoint 更宽（能接受主机名和完整 URL）。
-  const raw = String(settings.endpoint ?? '').trim() || String(settings.workspaceId ?? '').trim();
+  // workspaceId 与 endpointOverride 谁填了都行，后者更宽（能接受主机名和完整 URL）。
+  const raw = String(settings.endpointOverride ?? '').trim() || String(settings.workspaceId ?? '').trim();
   const endpoint = normalizeEndpoint(raw, preset);
 
   const unresolved = endpoint.includes('{') || (preset.needsWorkspace && !raw);
@@ -99,7 +106,7 @@ export function resolveProvider(settings = {}) {
     kind: preset.kind,
     label: preset.label,
     endpoint,
-    model: String(settings.model ?? '').trim() || preset.model,
+    model: String(settings.modelOverride ?? '').trim() || preset.model,
     maxQuestions: preset.maxQuestions,
     // 后端可覆盖全局阈值。不同厂商的量表刻度不一样，共用一个阈值是错的。
     threshold: preset.threshold,

@@ -26,7 +26,8 @@ const arg = name => {
   return i >= 0 ? process.argv[i + 1] : undefined;
 };
 const provider = resolveProvider({
-  provider: arg('provider'), workspaceId: arg('workspace'), endpoint: arg('endpoint'), model: arg('model'),
+  provider: arg('provider'), workspaceId: arg('workspace'),
+  endpointOverride: arg('endpoint'), modelOverride: arg('model'),
 });
 if (!provider.configured) {
   console.error(`provider=${provider.id} 还缺配置（多半是 --workspace）。`);

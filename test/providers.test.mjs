@@ -20,7 +20,7 @@ test('provider 解析：预设、模板替换、缺配置时明确不可用', ()
   assert.equal(resolveProvider({ provider: 'bailian' }).configured, false, '没填 WorkspaceId 时必须报未配置，而不是发一个带 {workspaceId} 的地址出去');
 
   // 设置里的 endpoint / model 覆盖预设
-  const custom = resolveProvider({ provider: 'typesafe', endpoint: 'https://my.gateway/systemone', model: 'my-model' });
+  const custom = resolveProvider({ provider: 'typesafe', endpointOverride: 'https://my.gateway/systemone', modelOverride: 'my-model' });
   assert.equal(custom.endpoint, 'https://my.gateway/systemone');
   assert.equal(custom.model, 'my-model');
 });
@@ -45,7 +45,7 @@ test('控制台给的三种形态都能填，不必自己去挖业务空间 ID',
     'https://ws-abc.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/systemone',
   );
   // endpoint 与 workspaceId 任一填了都算配置好了
-  assert.equal(resolveProvider({ provider: 'bailian', endpoint: 'https://custom/x' }).configured, true);
+  assert.equal(resolveProvider({ provider: 'bailian', endpointOverride: 'https://custom/x' }).configured, true);
   assert.equal(normalizeEndpoint('', PROVIDERS.typesafe), PROVIDERS.typesafe.endpoint);
 });
 
@@ -151,4 +151,18 @@ test('后端可以覆盖全局阈值（不同厂商的量表刻度不一样）',
   assert.equal(resolveProvider({ provider: 'typesafe' }).threshold, undefined, '未覆盖就跟随规则内置阈值');
   assert.equal(resolveProvider({ provider: 'bailian' }).threshold, 0.4, '阿里决策模型的刻度整体偏低，实测最优是 0.4');
   assert.equal(resolveProvider({ provider: 'bailianChat' }).threshold, undefined);
+});
+
+test('回归：早期版本存下的 settings.model 不能覆盖后端的模型名', () => {
+  // v0.1.0 的默认设置是 { model: 'jev-latest' }，会留在用户的 chrome.storage 里。
+  // 之后引入多后端时如果读 settings.model 当覆盖值，老用户升级后就会把 'jev-latest'
+  // 发给阿里，报 "Model not exist" —— key 对、workspace 对、端点也对，极难排查。
+  const legacy = { provider: 'bailian', workspaceId: 'ws-x', model: 'jev-latest', endpoint: 'https://old.example/x' };
+  const resolved = resolveProvider(legacy);
+  assert.equal(resolved.model, 'decision-model-preview', '旧字段必须被忽略');
+  assert.equal(resolved.endpoint, 'https://ws-x.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/systemone', '旧 endpoint 字段也必须被忽略');
+
+  // 只有带 Override 后缀的字段才当覆盖
+  assert.equal(resolveProvider({ provider: 'bailian', workspaceId: 'ws-x', modelOverride: 'my-model' }).model, 'my-model');
+  assert.equal(resolveProvider({ provider: 'bailian', workspaceId: 'ws-x', endpointOverride: 'https://c/x' }).endpoint, 'https://c/x');
 });
